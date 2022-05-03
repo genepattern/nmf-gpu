@@ -1,4 +1,5 @@
 import numpy as np
+import cupy as cp
 
 class NP_GCT:
     # #1.2
@@ -9,7 +10,7 @@ class NP_GCT:
         print(filename)
         if filename:
             # init from passed in stuff
-            data = np.genfromtxt(fname=filename, delimiter="\t", skip_header=3, filling_values=0)  # change filling_values as req'd to fill in missing values
+            data = cp.genfromtxt(fname=filename, delimiter="\t", skip_header=3, filling_values=0)  # change filling_values as req'd to fill in missing values
             self.data = data[:,2:]
             f = open(filename,'r')
             count=0
