@@ -1,0 +1,42 @@
+#!/bin/bash
+# Begin LSF Directives
+#BSUB -P TRN008
+#BSUB -W 00:50
+#BSUB -nnodes 1
+#BSUB -alloc_flags gpumps
+#BSUB -J NMF-nondebug
+#BSUB -o NMF.out.%J
+#BSUB -e NMF.err.%J
+
+#module purge
+#module load DefApps
+#module load gcc/7.5.0
+#module load cuda/11.0.3
+#module load python
+#source activate /gpfs/wolf/trn008/proj-shared/teammesirov/conda_envs/cupyenv
+#export CUPY_CACHE_DIR="/gpfs/wolf/trn008/scratch/${USER}/.cupy/kernel_cache"
+. /gpfs/wolf/trn008/proj-shared/teammesirov/env.daniel
+
+export WORKINGDIR=/gpfs/wolf/trn008/scratch/kenneth/testdir
+export BIONMFGPUPATH=/gpfs/wolf/trn008/scratch/kenneth/nmf-gpu/kenneth
+export CONSENSUSPY=/gpfs/wolf/trn008/scratch/kenneth/nmf-gpu/kenneth/consensus.py
+#export GPUPROGRAMPATH=${BIONMFGPUPATH}/bin/NMF_mGPU
+export GPUPROGRAMPATH=${BIONMFGPUPATH}/bin/nmf_mgpu.py
+#export PYVENVPATH=/gpfs/wolf/trn008/proj-shared/teammesirov/pyvenv
+#module load gcc
+#module load cuda
+#module load python
+#. ${PYVENVPATH}/bin/activate
+#. ${BIONMFGPUPATH}/env.sh ${CUDA_PATH}
+cd ${WORKINGDIR}
+mkdir jobdir.${LSB_JOBID}
+#export NUMTASKS=4
+#export CUDA_VISIBLE_DEVICES=0,1,2,3
+export NUMTASKS=1
+export CUDA_VISIBLE_DEVICES=0
+echo CUDA_VISIBLE_DEVICES $CUDA_VISIBLE_DEVICES
+nvidia-smi
+date
+#${CONSENSUSPY} --jobdir=${WORKINGDIR}/jobdir.${LSB_JOBID} --inputfile=${WORKINGDIR}/ALL_AML_data.txt --maxk=2 --numtasks=${NUMTASKS}
+${CONSENSUSPY} --gpuprogrampath=${GPUPROGRAMPATH} --jobdir=${WORKINGDIR}/jobdir.${LSB_JOBID} --inputfile=${WORKINGDIR}/ALL_AML_data.gct --mink=2 --maxk=2 --startseed=1 --seeds=10 --consecutive=40 --maxiterations=2000 --outputfileprefix=ALL_AML_data --interval=10 --keepintermediatefiles --numtasks=${NUMTASKS} --nocleanup --keepintermediatefiles
+date
