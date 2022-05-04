@@ -10,7 +10,7 @@ class NP_GCT:
         print(filename)
         if filename:
             # init from passed in stuff
-            data = cp.genfromtxt(fname=filename, delimiter="\t", skip_header=3, filling_values=0)  # change filling_values as req'd to fill in missing values
+            data = np.genfromtxt(fname=filename, delimiter="\t", skip_header=3, filling_values=0)  # change filling_values as req'd to fill in missing values
             self.data = data[:,2:]
             f = open(filename,'r')
             count=0
@@ -48,6 +48,58 @@ class NP_GCT:
             self.columnnames=colNames
     
     def write_gct(self, file_path):
+        """
+        Writes the provided NP_GCT to a GCT file.
+        If any of rownames, rowdescriptions or columnnames is missing write the 
+        index in their place (starting with 1)
+    
+        :param file_path:
+        :return:
+        """
+        np.set_printoptions(suppress=True)
+        with open(file_path, 'w') as file:
+
+            nRows = self.data.shape[0]
+            nCols = self.data.shape[1]
+            rowNames = self.rownames;
+            rowDescriptions = self.rowdescriptions;
+            colNames = self.columnnames;
+        
+            if not rowNames:
+                rowNames = ["{:}".format(n) for n in range(1,self.data.shape[0]+1)]
+        
+            if not rowDescriptions:
+                rowDescriptions = rowNames
+        
+            if not colNames:
+                colNames =  ["{:}".format(n) for n in range(1,self.data.shape[1]+1)]
+        
+            file.write('#1.2\n' + str(nRows) + '\t' + str(nCols) + '\n')
+            file.write("Name\tDescription\t")
+            file.write(colNames[0])
+
+            for j in range(1, nCols):
+                file.write('\t')
+                file.write(colNames[j])
+
+            file.write('\n')
+
+            for i in range(nRows):
+                file.write(rowNames[i] + '\t')
+                file.write(rowDescriptions[i] + '\t')
+                file.write(str(self.data[i,0]))
+                for j in range(1, nCols):
+                    file.write('\t')
+                    file.write(str(self.data[i,j]))
+
+                file.write('\n')
+            print("File written " + file_path)
+
+
+
+
+
+    def __write_gct(self, file_path):
         """
         Writes the provided DataFrame to a GCT file.
         Assumes that the DataFrame matches the structure of those produced
