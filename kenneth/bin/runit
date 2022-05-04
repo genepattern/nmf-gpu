@@ -1,1 +1,1 @@
-./nmf_mgpu.py --inputmatrix=bionmf.input.txt --seed=1 --kfactor=2
+./nmf_mgpu.py --inputmatrix=bionmf.input.txt --seed=1 --kfactor=2 --checkinterval=10 --maxiterations=2000 --threshold=40
