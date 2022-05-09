@@ -12,39 +12,36 @@
 import argparse
 import sys
 import cupy as cp
+import os.path
 
-if __name__ == '__main__':
-  print('start of nmf_mgpu.py\n')
-  sys.stdout.write('start of nmf_mgpu.py, stderr\n')
-  parser = argparse.ArgumentParser()
-  parser.add_argument('-m', '--inputmatrix', dest='inputmatrix', action='store')
-  parser.add_argument('-k', '--kfactor', dest='kfactor', action='store')
-  parser.add_argument('-j', '--checkinterval', dest='checkinterval', action='store')
-  parser.add_argument('-t', '--threshold', dest='threshold', action='store')
-  parser.add_argument('-i', '--maxiterations', dest='maxiterations', action='store')
-  parser.add_argument('-s', '--seed', dest='seed', action='store')
-  args = parser.parse_args()
+parser = argparse.ArgumentParser()
+parser.add_argument('-v', '--verbose', dest='verbose', action='store_true')
+parser.add_argument('-m', '--inputmatrix', dest='inputmatrix', action='store')
+parser.add_argument('-k', '--kfactor', dest='kfactor', action='store')
+parser.add_argument('-j', '--checkinterval', dest='checkinterval', action='store')
+parser.add_argument('-t', '--threshold', dest='threshold', action='store')
+parser.add_argument('-i', '--maxiterations', dest='maxiterations', action='store')
+parser.add_argument('-s', '--seed', dest='seed', action='store')
+args = parser.parse_args()
+checkinterval = int(args.checkinterval)
+maxiterations = int(args.maxiterations)
+threshold = int(args.threshold)
+debug = args.verbose
 
 # read input file, create array on device
 V = cp.loadtxt(fname=args.inputmatrix)
-print(f'inputarray.shape: ({V.shape})\n')
-print(f'V: ({V})\n')
-
-# load Michael's ALL_AML_data.txt to comparre with bioinmf.input.txt
-#testinput = cp.loadtxt(fname='ALL_AML_data.txt.stripped')
-#print(f'inputarray.shape: ({testinput.shape})\n')
-#print(f'equa?: ({cp.array_equal(V, testinput)})\n')
-#sys.exit(0)
+if debug:
+  print(f'inputarray.shape: ({V.shape})\n')
+  print(f'V: ({V})\n')
 
 # seed the PRNG
 cp.random.seed(int(args.seed))
 
-checkinterval = int(args.checkinterval)
-maxiterations = int(args.maxiterations)
-threshold = int(args.threshold)
+if debug:
+  print('start of nmf_mgpu.py\n')
   
-M = V.shape[1]
 N = V.shape[0]
+M = V.shape[1]
 kfactor = int(args.kfactor)
 # create H and W random on device
 # H = M (inputarray.shape[1]) x k (stored transposed), W = N (inputarra.shape[0]x k
@@ -53,24 +50,22 @@ kfactor = int(args.kfactor)
 # set_random_values( d_W, N, K, Kp,
 # should be transposed for H...
 # this is over interval [0, 1), might need to add a smidge...
-H = cp.random.rand(kfactor,M)
+H = cp.add(cp.random.rand(kfactor,M), 1.0)
 # is it better to create the transposed matrix from the start?
 Ht = H.transpose()
-W = cp.random.rand(N,kfactor)
+W = cp.add(cp.random.rand(N,kfactor), 1.0)
 Wt = W.transpose()
-#sys.exit(0)
-print(f'initial H: ({H})\n')
-print(f'initial Ht: ({Ht})\n')
-print(f'initial W: ({W})\n')
-print(f'initial Wt: ({Wt})\n')
+if debug:
+  print(f'initial H: ({H})\n')
+  print(f'initial Ht: ({Ht})\n')
+  print(f'initial W: ({W})\n')
+  print(f'initial Wt: ({Wt})\n')
 
 iterationcount = 0
 oldclassification = None
 sameclassificationcount = 0
 while iterationcount < maxiterations:
-  iterationcount = iterationcount + 1
 
-  sys.stdout.write('before update H\n')
   # update Ht
   # * WH(N,BLMp) = W * pH(BLM,Kp)
   # * WH(N,BLMp) = Vcol(N,BLMp) ./ WH(N,BLMp)
@@ -78,37 +73,51 @@ while iterationcount < maxiterations:
   # * H(BLM,Kp) = H(BLM,Kp) .* Haux(BLM,Kp) ./ accum_W
   
   # WH = W * H
-  print(f' W.shape: {W.shape}, H.shape: {H.shape}\n')
+  # WH (N x M) = (N x k) * (k x M)
+  if debug:
+    print(f' W.shape: {W.shape}, H.shape: {H.shape}\n')
   WH = cp.matmul(W, H)
-  print(f'WH: ({WH})\n')
+  if debug:
+    print(f'WH: ({WH})\n')
 
   # AUX = V (input matrix) ./ (W*H)
-  AUX = cp.divide(V, WH)
-  print(f'AUX: ({AUX})\n')
+  # AUX (N x M)
+  #AUX = cp.divide(V, WH)
+  # overwrite WH, I wonder if that breaks anything...
+  WH = cp.divide(V, WH)
+  #print(f'AUX: ({AUX})\n')
+  if debug:
+    print(f'WH: ({WH})\n')
   
   # WTAux = Wt * AUX
-  print(f'Wt: ({Wt})\n')
-  print(f' Wt.shape: {Wt.shape}, AUX.shape: {AUX.shape}\n')
-  print(f' Wt[0,0] * AUX[0,0]: {Wt[0,0] * AUX[0,0]}\n')
-  WTAUX = cp.matmul(Wt, AUX)
-  print(f' WTAUX.shape: {WTAUX.shape}\n')
-  print(f'WTAUX: ({WTAUX})\n')
+  if debug:
+    print(f'Wt: ({Wt})\n')
+  WTAUX = cp.matmul(Wt, WH, dtype=cp.float64)
+  if debug:
+    print(f' WTAUX.shape: {WTAUX.shape}\n')
+    print(f'WTAUX: ({WTAUX})\n')
   
   # how do we get reduced an accumulated ACCWT below?
   # sum each column down to a single value...
-  ACCWT = cp.sum(Wt, axis=1)
+  ACCW = cp.sum(W, axis=0)
   
   # WTAUXDIV = WTAUX ./ ACCWT
   
-  print(f' WTAUX.shape: {WTAUX.shape}, ACCWT.shape: {ACCWT.shape}\n')
-  print(ACCWT)
-  WTAUXDIV = cp.divide(WTAUX.transpose(), ACCWT.transpose())
+  if debug:
+    print(f' WTAUX.shape: {WTAUX.shape}, ACCW.shape: {ACCW.shape}\n')
+    print(f'ACCW: ({ACCW})\n')
+  WTAUXDIV = cp.divide(WTAUX.transpose(), ACCW)
+  WTAUXDIV = WTAUXDIV.transpose()
+  if debug:
+    print(f'WTAUXDIV: ({WTAUXDIV})\n')
   
   # H = H .* WTAUXDIV
-  Hnew = cp.multiply(H, WTAUXDIV.transpose())
-  H = Hnew
+  Hnew = cp.multiply(H, WTAUXDIV)
+  if debug:
+    print(f'Hnew: ({Hnew})\n')
   
-  sys.stdout.write('before update W\n')
+  if debug:
+    printt('before update W\n')
   # update W
   # * WH(BLN,Mp) = W(BLN,Kp) * H
   # * WH(BLN,Mp) = Vrow(BLN,Mp) ./ WH(BLN,Mp)
@@ -116,20 +125,35 @@ while iterationcount < maxiterations:
   # * W(BLN,Kp) = W(BLN,Kp) .* Waux(BLN,Kp) ./ accum_h
   # generate ACCUMH
   ACCH = cp.sum(H, axis=1)
+  if debug:
+    print(f'H: ({H})\n')
+    print(f'ACCH: ({ACCH})\n')
   
   # skip steps up to AUX
   # from update_W notes:
   #  * Waux(BLN,Kp) = WH(BLN,Mp) * H'
+  # should I be using the original Ht here?
   HTAUX = cp.matmul(WH, Ht)
+  if debug:
+    print(f'HTAUX: ({HTAUX})\n')
   
   # * W(BLN,Kp) = W(BLN,Kp) .* Waux(BLN,Kp) ./ accum_h
   WWAUX = cp.multiply(W, HTAUX)
+  if debug:
+    print(f'WWAUX: ({WWAUX})\n')
   
   Wnew = cp.divide(WWAUX, ACCH)
+  if debug:
+    print(f'Wnew: ({Wnew})\n')
+  H = Hnew
+  Ht = H.transpose()
   W = Wnew
+  Wt = W.transpose()
   
-  sys.stdout.write('after update W\n')
-  print(f'H: ({H})\n')
+  if debug:
+    print('after update W\n')
+    print(f'H: ({H})\n')
+    print(f'W: ({W})\n')
 
   # check classification for Ht
   # * Computes the maximum value of each row in d_A[] and stores its column index in d_Idx[].
@@ -141,26 +165,38 @@ while iterationcount < maxiterations:
   # * In addition, "pitch" must be a multiple of 'memory_alignment'.
   # Ht is M x k, need array M x 1 to store column index
  
-  if iterationcount > checkinterval and divmod(iterationcount, checkinterval)[1] ==0:
+  if iterationcount > checkinterval and divmod(iterationcount, checkinterval)[1] == 0:
     # check classification
-    if not oldclassification == None:
-       newclassification = cp.ndarray((M, 1), dtype=cp.int16)
-       for thisrow in range(M):
-         for thiscolumn in range(kfactor):
-           if thiscolumn == 0:
-             maxrow = 0
-           else:
-             # tie goes to incumbent?
-             if Ht[thisrow,thiscolumn] > maxrow:
-               maxrow = thisrow
-         newclassification[thisrow] = maxrow
-       if cp.array_equal(oldclassification, newclassification) == True:
-         print(f'1. equal: ({cp.array_equal(oldclassification, newclassification)})\n')
-         if sameclassificationcount >= threshold:
-           print(f'classification unchanged in {sameclassificationcount} trials,breaking.\n')
-           break
-       else:
-         print(f'2. equal: ({cp.array_equal(oldclassification, newclassification)})\n')
-         oldclassification = newclassification
-         sameclassificationcount = 0
-print(f'iterationcount ({iterationcount})\n')
+    if debug:
+      print('checking classification...\n')
+    newclassification = cp.ndarray((M, 1), dtype=cp.int16)
+    for thisrow in range(M):
+      for thiscolumn in range(kfactor):
+        if thiscolumn == 0:
+          maxrow = 0
+        else:
+          # tie goes to incumbent?
+          if Ht[thisrow,thiscolumn] > maxrow:
+            maxrow = thisrow
+      newclassification[thisrow] = maxrow
+    if debug:
+      print(f'type(oldclassification): ({type(oldclassification)})\n')
+    if type(oldclassification) == type(newclassification) and cp.array_equal(oldclassification, newclassification) == True:
+      if debug:
+        print(f'1. equal?: ({cp.array_equal(oldclassification, newclassification)})\n')
+      sameclassificationcount = sameclassificationcount + 1
+      if sameclassificationcount >= threshold:
+        if debug:
+          print(f'classification unchanged in {sameclassificationcount} trials,breaking.\n')
+          print(f'H: ({H})\n')
+        cp.savetxt(os.path.basename(args.inputmatrix) + '_H.txt', H)
+        break
+    else:
+      oldclassification = newclassification
+      sameclassificationcount = 0
+      if iterationcount > 0:
+        if debug:
+          print(f'2. equal?: ({cp.array_equal(oldclassification, newclassification)})\n')
+  iterationcount = iterationcount + 1
+if debug:
+  print(f'iterationcount ({iterationcount})\n')
