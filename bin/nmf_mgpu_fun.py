@@ -20,7 +20,7 @@ import os.path
 from mpi4py import MPI
 
 
-def runnmf(inputmatrix=None,kfactor=2,checkinterval=10,threshold=40,maxiterations=2000,seed=1,verbose=False):
+def runnmf(inputmatrix=None,kfactor=2,checkinterval=10,threshold=40,maxiterations=2000,seed=1,debug=False):
   # read input file, create array on device
   #V = cp.loadtxt(fname=args.inputmatrix)
   V = inputmatrix
