@@ -7,16 +7,20 @@ class NP_GCT:
     # name descrip sample1 sample2 ...
     # rowname1 rowdescrip1 value value ...   
     def __init__(self, filename=None, data=None, rowNames=None, rowDescrip=None, colNames=None):
-        print(filename)
         if filename:
+            print(filename)
+
             # init from passed in stuff
-            data = np.genfromtxt(fname=filename, delimiter="\t", skip_header=3, filling_values=0)  # change filling_values as req'd to fill in missing values
-            self.data = data[:,2:]
             f = open(filename,'r')
             count=0
             f.readline() ##1.2
             dims = f.readline().split('\t') # rows cols
+            numCols = int(dims[1])
             colNames = f.readline().strip().split('\t');
+            # override comments because there are none in a gct but there can be # in a gene description
+            data = np.genfromtxt(fname=filename, delimiter="\t", skip_header=3, usecols=range(2,numCols+2), filling_values=0, comments='#####')  # change filling_valuesas req'd to fill in missing values
+            self.data = data
+
 
             self.columnnames = colNames[2:];
             self.rownames = [None] * int(dims[0])
@@ -39,13 +43,12 @@ class NP_GCT:
                 count += 1
 
             f.close()
-            print("loaded from file")
         else:    
-            print("loaded from vars")
             self.data=data
             self.rownames=rowNames
             self.rowdescriptions=rowDescrip
             self.columnnames=colNames
+        print("Loaded matrix of shape ", self.data.shape)
     
     def write_gct(self, file_path):
         """
