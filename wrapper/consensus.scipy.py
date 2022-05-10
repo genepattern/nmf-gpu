@@ -86,13 +86,18 @@ try:
     os.mkdir('k.{}'.format(k))
     together_counts = numpy.zeros((M,M))
     for seed in seed_list:
-      os.chdir(JOBDIR)
+
+        #  here is the call to NMF itself, the C code version
+        os.chdir(JOBDIR)
       os.mkdir('k.{}/seed.{}'.format(k,seed))
       os.mkdir('k.{}/seed.{}/test'.format(k,seed))
       os.symlink('{}/bionmf.input.txt'.format(JOBDIR),'{}/k.{}/seed.{}/test/bionmf.input.txt'.format(JOBDIR,k, seed))
       os.chdir('k.{}/seed.{}'.format(k,seed))
       cmd = f'jsrun --smpiargs="-gpu" --nrs={mpitasks} --tasks_per_rs=1 --cpu_per_rs=1 --gpu_per_rs=1 --rs_per_host={mpitasks} --bind=rs {GPUPROGRAMPATH}  test/bionmf.input.txt  -k {k}  -j 10  -t 40  -i 2000 -s {seed} > mpi.out 2>mpi.err'
       os.system(cmd)
+      # end of the C code version callout
+      # now we read the output matrices
+
       maxrow_list = []
       for mindex in range(M):
         maxrow_list.append([None,0.0])
