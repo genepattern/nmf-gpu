@@ -18,7 +18,7 @@ class NP_GCT:
             numCols = int(dims[1])
             colNames = f.readline().strip().split('\t');
             # override comments because there are none in a gct but there can be # in a gene description
-            data = np.genfromtxt(fname=filename, delimiter="\t", skip_header=3, usecols=range(2,numCols+2), filling_values=0, comments='#####')  # change filling_valuesas req'd to fill in missing values
+            data = cp.genfromtxt(fname=filename, delimiter="\t", skip_header=3, usecols=range(2,numCols+2), filling_values=0, comments='#####')  # change filling_valuesas req'd to fill in missing values
             self.data = data
 
 
