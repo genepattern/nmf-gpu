@@ -34,12 +34,42 @@ import shutil
 import argparse
 import subprocess
 import shlex
+import matplotlib as mpl
+mpl.use('Agg')
 import matplotlib.pyplot as plt
 import gp.data
 import pandas
 import traceback
 import cupy as cp
+import time
 import numpy as np
+import scipy.cluster.hierarchy
+import scipy.spatial.distance
+import heapq
+
+from mpi4py import MPI
+comm = MPI.COMM_WORLD
+mpi_rank = comm.rank
+mpi_size = comm.size
+
+
+def divide_almost_equally(arr, num_chunks):
+    arr = sorted(arr, reverse=True)
+    heap = [(0, idx) for idx in range(num_chunks)]
+    heapq.heapify(heap)
+    sets = {}
+    for i in range(num_chunks):
+        sets[i] = []
+    arr_idx = 0
+    while arr_idx < len(arr):
+        set_sum, set_idx = heapq.heappop(heap)
+        sets[set_idx].append(arr[arr_idx])
+        set_sum += arr[arr_idx]
+        heapq.heappush(heap, (set_sum, set_idx))
+        arr_idx += 1
+    return list(sets.values())
+
+
 
 ############  add local functions
 sys.path.append("/gpfs/wolf/trn008/scratch/liefeld/nmf-gpu/wrapper")
@@ -76,60 +106,44 @@ seed_list = range(int(args.startseed), int(args.startseed) + int(args.seeds))
 JOBDIR = args.jobdir
 debug = args.verbose
 # read INPUTFILE as gct file
-#FO = open(INPUTFILE, 'r')
-#inputdf = gp.data.GCT(FO)
-#FO.close()
-#inputarray = inputdf.to_numpy()
-#emptydf = inputdf.drop(inputdf.index, axis=0)
-#FO = open('bionmf.input.txt', 'w')
-#numpy.savetxt(FO, inputarray, delimiter='\t')
-#FO.close()
-print(str(args))
-print("Loading " + args.inputfile)
 gct_data = NP_GCT(args.inputfile)
-V = gct_data.data
-print("=====input matrix ===========")
-print(V)
-M = V.shape[1]
 
+V = gct_data.data
+
+M = V.shape[1]
+results = []
+print("Read " + args.inputfile + "  " + str(V.shape))
 
 if debug:
   print('M ({}) from ({})'.format(M,V))
 
+
+k_values = np.arange(mink, maxk +1)
+k_subsets = divide_almost_equally(k_values, mpi_size)
+my_k_indices = k_subsets[mpi_rank]
 try:
-  for k in range(mink,maxk + 1):
+  for k in my_k_indices:
     if debug:
       print('start of loop for k={}'.format(k))
     together_counts = numpy.zeros((M,M))
     for seed in seed_list:
-      #os.chdir(JOBDIR)
-      #os.mkdir('k.{}/seed.{}'.format(k,seed))
-      #os.mkdir('k.{}/seed.{}/test'.format(k,seed))
-      #os.symlink('{}/bionmf.input.txt'.format(JOBDIR),'{}/k.{}/seed.{}/test/bionmf.input.txt'.format(JOBDIR,k, seed))
-      #os.chdir('k.{}/seed.{}'.format(k,seed))
       if debug:
         DEBUGOPTION = '--verbose'
       else:
         DEBUGOPTION = ''
-      #cmd = f'jsrun --smpiargs="-gpu" --nrs={mpitasks} --tasks_per_rs=1 --cpu_per_rs=1 --gpu_per_rs=1 --rs_per_host={mpitasks} --bind=rs {GPUPROGRAMPATH} {DEBUGOPTION} --inputmatrix=test/bionmf.input.txt  -k {k}  -j 10  -t 40  -i 2000 -s {seed} > {JOBDIR}/mpi.out 2>{JOBDIR}/mpi.err'
-      #if debug:
-      #  print(f'cmd: ({cmd})\n')
       
-      #os.system(cmd)
-      
-      debug = False
-      WH = runnmf(inputmatrix=V, kfactor=k, checkinterval=int(args.interval), threshold=int(args.consecutive), maxiterations=int(args.maxiterations), seed=seed, debug=debug)
-      debug = True
+      start = time.process_time() 
+      WH = runnmf(inputmatrix=V, kfactor=k, checkinterval=int(args.interval), threshold=int(args.consecutive), maxiterations=int(args.maxiterations), seed=seed, debug=False)
+      print("xxxxxxxxxxxxxxx Elapsed time for k=" + str(k) + ": " + str(time.process_time() - start));
 
+      print("return from runnmf is " + str(WH)) 
+      if (not WH):
+          continue
       maxrow_list = []
       for mindex in range(M):
         maxrow_list.append([None,0.0])
       
-      #H = numpy.loadtxt('{}_H.txt'.format(os.path.split('bionmf.input.txt')[1]))
       H = WH[1]
-      print("for k=" + str(k) + " seed=" + str(seed) + "  H is " )
-      print(H)
-      #input_line_index = 0
       for row_index, row in enumerate(H[:]):
         if debug:
           print(f'row: ({row})\n')
@@ -150,14 +164,8 @@ try:
           if maxrow_list[i_index][0] == maxrow_list[j_index][0]:
             together_counts[i_index, j_index] = together_counts[i_index, j_index] + 1
     print('finished all seed trials for k={}, calculating cophenetic correlation distance...'.format(k))
-    #os.chdir(JOBDIR + '/k.{}'.format(k))
-    #if args.keepintermediatefiles == True:
-    #  print('keeping ' + JOBDIR + '/k.{}'.format(k))
-    #else:
-    #  print('rmtree of ' + JOBDIR + '/k.{}'.format(k))
-    #  shutil.rmtree(JOBDIR + '/k.{}'.format(k))
-    # together_counts is a square matrix where `together_counts[i,j]` is the
-    #number of times sample `i` clusters with sample `j`
+    # for MPI scatter/gather
+    results.append(together_counts)
     numpy.set_printoptions(threshold=M*M)
     print('consensus matrix shape ({})'.format(together_counts.shape))
     sys.stdout.write('consensus matrix:')
@@ -166,20 +174,41 @@ try:
       for j_index in range(M):
         sys.stdout.write('{:>2.0f}'.format(together_counts[i_index, j_index]))
     sys.stdout.write('\n')
-    # need to write consensus matrix file <outputfileprefix>.consensus.k.<k>.gct
-    #consensusdf = pandas.DataFrame(data=together_counts)
-    #indexlist = []
-    #for cl in emptydf.columns.values:
-    #  indexlist.append((cl, 'na'))
-    #consensusdf.set_axis(emptydf.columns.values, axis='columns', inplace=True)
-    #consensusdf.set_axis(indexlist, axis='index', inplace=True)
-    #consensusdf = emptydf.append(consensusdf)
-    #gp.data.write_gct(consensusdf,'{}/{}.consensus.k.{}.gct'.format(JOBDIR,args.outputfileprefix,k))
+    
+    
     i_counts = together_counts.astype(int)    
     consensus_gct = NP_GCT(data=i_counts, rowNames=gct_data.columnnames, colNames=gct_data.columnnames)
     consensus_gct.write_gct('{}.consensus.k.{}.gct'.format(args.outputfileprefix,k))
 
+    linkage_mat = scipy.cluster.hierarchy.linkage(together_counts)
+    cdm = scipy.spatial.distance.pdist(together_counts)
+    cophenetic_correlation_distance, cophenetic_distance_matrix = scipy.cluster.hierarchy.cophenet(linkage_mat, cdm)
+    print('k={}, cophenetic_correlation_distance: ({})'.format(k,cophenetic_correlation_distance))
+    
+    fig, ax = plt.subplots()
+    fig.set_figwidth(8)
+    fig.set_figheight(8)
+    im = plt.imshow(i_counts, cmap='bwr', interpolation='nearest')
 
+    ax.set_xticks(np.arange(len(gct_data.columnnames)), labels=gct_data.columnnames)
+    ax.set_yticks(np.arange(len(gct_data.columnnames)), labels=gct_data.columnnames)
+
+    # Rotate the tick labels and set their alignment.
+    plt.setp(ax.get_xticklabels(), rotation=45, ha="right",  rotation_mode="anchor")
+
+    # Loop over data dimensions and create text annotations.
+    #for i in range(len(gct_data.columnnames)):
+    #    for j in range(len(gct_data.columnnames)):
+    #        text = ax.text(j, i, i_counts[i, j],
+    #                   ha="center", va="center", color="w")
+
+    ax.set_title("Consensus Matrix, k="+str(k))
+    fig.tight_layout()
+
+    plt.savefig('{}.consensus.k.{}.pdf'.format(args.outputfileprefix,k))  
+
+
+  comm.gather(results, root=0)
 except:
   traceback.print_tb(sys.exc_info()[2])
   print("Unexpected error:", sys.exc_info()[0])
