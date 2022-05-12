@@ -27,5 +27,5 @@ export CUDA_VISIBLE_DEVICES=0
 echo CUDA_VISIBLE_DEVICES $CUDA_VISIBLE_DEVICES
 nvidia-smi
 date
-jsrun --smpiargs="-gpu" --nrs=${NUMTASKS} --tasks_per_rs=1 --cpu_per_rs=1 --gpu_per_rs=1 --rs_per_host=${NUMTASKS} --bind=rs  python3 $SRC_ROOT/consensus.pure.py --inputfile /gpfs/wolf/trn008/scratch/liefeld/nmf-gpu/test_data/ALL_AML_data.gct --outputfileprefix foo --mink 2 --maxk 2 --interval 10 --consecutive 40 --maxiterations 1000 --jobdir ${PWD} --startseed 1 --seeds 10  
+jsrun --smpiargs="-gpu" --nrs=${NUMTASKS} --tasks_per_rs=1 --cpu_per_rs=1 --gpu_per_rs=1 --rs_per_host=${NUMTASKS} --bind=rs  python3 $SRC_ROOT/consensus.pure.py --inputfile /gpfs/wolf/trn008/scratch/liefeld/nmf-gpu/test_data/ALL_AML_data.gct --outputfileprefix foo --mink 2 --maxk 4 --interval 10 --consecutive 40 --maxiterations 1000 --jobdir ${PWD} --startseed 1 --seeds 10  
 date
