@@ -46,10 +46,16 @@ def runnmf(inputmatrix=None,kfactor=2,checkinterval=10,threshold=40,maxiteration
   # set_random_values( d_W, N, K, Kp,
   # should be transposed for H...
   # this is over interval [0, 1), might need to add a smidge...
-  H = cp.random.rand(kfactor,M)
+  #H = cp.random.rand(kfactor,M)
+  H = cp.random.rand(kfactor,M) + 0.1
+  #Hones = cp.ones((kfactor,M))
+  #H = cp.add(H,Hones)
   # is it better to create the transposed matrix from the start?
   Ht = H.transpose()
-  W = cp.random.rand(N,kfactor)
+  #W = cp.random.rand(N,kfactor)
+  W = cp.random.rand(N,kfactor) + 0.1
+  #Wones = cp.ones((N,kfactor))
+  #W = cp.add(W,Wones)
   Wt = W.transpose()
   if debug:
     print(f'initial H: ({H})\n')
@@ -146,6 +152,8 @@ def runnmf(inputmatrix=None,kfactor=2,checkinterval=10,threshold=40,maxiteration
     W = Wnew
     Wt = W.transpose()
     
+    #olddebug = debug
+    #debug = True
     if debug:
       print('after update W\n')
       print(f'H: ({H})\n')
@@ -163,20 +171,38 @@ def runnmf(inputmatrix=None,kfactor=2,checkinterval=10,threshold=40,maxiteration
    
     if iterationcount > checkinterval and divmod(iterationcount, checkinterval)[1] == 0:
       # check classification
+      # H is kxM matrix.  classification is 1xM array, with each element
+      # the row index of the max of the elements in that column.
+      # from the C code comments:
+      #/*
+      # * Computes the maximum value of each row in d_A[] and stores its column index in d_Idx[].
+      # * That is, returns d_Idx[i], such that:
+      # *      d_A[i][ d_Idx[i] ] == max( d_A[i][...] ).
+      # *
+      # * size_of( d_Idx ) >= height
+      # * width <= pitch <= maxThreadsPerBlock
+      # * In addition, "pitch" must be a multiple of 'memory_alignment'.
+      # *
+      # * Returns EXIT_SUCCESS or EXIT_FAILURE.
+      # */
+
       if debug:
         print('checking classification...\n')
-      newclassification = cp.ndarray((M, 1), dtype=cp.int16)
-      for thisrow in range(M):
-        for thiscolumn in range(kfactor):
-          if thiscolumn == 0:
-            maxrow = 0
-          else:
-            # tie goes to incumbent?
-            if Ht[thisrow,thiscolumn] > maxrow:
-              maxrow = thisrow
-        newclassification[thisrow] = maxrow
+      #newclassification = cp.ndarray((M), dtype=cp.int16)
+      #for thiscolumn in range(M):
+      #  for thisrow in range(kfactor):
+      #    if thisrow == 0:
+      #      maxrow = 0
+      #    else:
+      #      # tie goes to incumbent?
+      #      #if Ht[thisrow,thiscolumn] > Ht[thisrow,maxrow]:
+      #      if H[thisrow,thiscolumn] > H[maxrow,thiscolumn]:
+      #        maxrow = thisrow
+      #  newclassification[thiscolumn] = maxrow
+      newclassification = cp.argmax(H, axis=0)
       if debug:
         print(f'type(oldclassification): ({type(oldclassification)})\n')
+        print(f'newclassification: ({newclassification})\n')
       if type(oldclassification) == type(newclassification) and cp.array_equal(oldclassification, newclassification) == True:
         if debug:
           print(f'1. equal?: ({cp.array_equal(oldclassification, newclassification)})\n')
@@ -189,14 +215,19 @@ def runnmf(inputmatrix=None,kfactor=2,checkinterval=10,threshold=40,maxiteration
           #break
           return((W,H))
       else:
+        if debug:
+          if type(oldclassification) == type(newclassification):
+            print(f'2. equal?: ({cp.array_equal(oldclassification, newclassification)})\n')
+          else:
+            print(f'2. type(oldclassification) != type(newclassification)\n')
         oldclassification = newclassification
         sameclassificationcount = 0
-        if iterationcount > 0:
-          if debug:
-            print(f'2. equal?: ({cp.array_equal(oldclassification, newclassification)})\n')
     iterationcount = iterationcount + 1
+    #debug = olddebug
   if debug:
     print(f'iterationcount ({iterationcount})\n')
+  # if we are here, we failed to return before we hit iteration limit
+  # should raise an exception
 
 if __name__ == '__main__':
   comm = MPI.COMM_WORLD
