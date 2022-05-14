@@ -45,7 +45,9 @@ import time
 import numpy as np
 import scipy.cluster.hierarchy
 import scipy.spatial.distance
+from sklearn import cluster
 import heapq
+import pandas as pd
 
 from mpi4py import MPI
 comm = MPI.COMM_WORLD
@@ -134,46 +136,50 @@ try:
       
       start = time.process_time() 
       WH = runnmf(inputmatrix=V, kfactor=k, checkinterval=int(args.interval), threshold=int(args.consecutive), maxiterations=int(args.maxiterations), seed=seed, debug=False)
-      print("xxxxxxxxxxxxxxx Elapsed time for k=" + str(k) + ": " + str(time.process_time() - start));
-
-      print("return from runnmf is " + str(WH)) 
+      
+      #print("xxxxxxxxxxxxxxx Elapsed time for k=" + str(k) + ": " + str(time.process_time() - start));
+      #print("return from runnmf is " + str(WH)) 
       if (not WH):
           continue
-      maxrow_list = []
-      for mindex in range(M):
-        maxrow_list.append([None,0.0])
-      
-      H = WH[1]
-      for row_index, row in enumerate(H[:]):
-        if debug:
-          print(f'row: ({row})\n')
-        for field_index, field in enumerate(row):
-          field_float = field
-          if row_index == 0 or maxrow_list[field_index][1] <= field_float:
-            if debug:
-              print(f'maxrow_list[{field_index}][1] ({maxrow_list[field_index][1]}) <= ({field_float}), setting maxrow_list[{field_index}][0] to ({row_index})\n')
-            maxrow_list[field_index][0] = row_index
-            maxrow_list[field_index][1] = field_float
-        #input_line_index = input_line_index + 1
-        
-      if debug:
-        print(f'maxrow_list: ({maxrow_list})\n')
-      # update together_counts
-      for i_index in range(M):
-        for j_index in range(M):
-          if maxrow_list[i_index][0] == maxrow_list[j_index][0]:
-            together_counts[i_index, j_index] = together_counts[i_index, j_index] + 1
+      i = cp.asnumpy(cp.argmax(WH[1], axis=0))
+      together_counts[i[:, None] == i[None, :]] += 1
+
+      #maxrow_list = []
+      #for mindex in range(M):
+      #  maxrow_list.append([None,0.0])
+      #
+      #H = WH[1]
+      #for row_index, row in enumerate(H[:]):
+      #  if debug:
+      #    print(f'row: ({row})\n')
+      #  for field_index, field in enumerate(row):
+      #    field_float = field
+      #    if row_index == 0 or maxrow_list[field_index][1] <= field_float:
+      #      if debug:
+      #        print(f'maxrow_list[{field_index}][1] ({maxrow_list[field_index][1]}) <= ({field_float}), setting maxrow_list[{field_index}][0] to ({row_index})\n')
+      #      maxrow_list[field_index][0] = row_index
+      #      maxrow_list[field_index][1] = field_float
+      #  #input_line_index = input_line_index + 1
+      #  
+      #if debug:
+      #  print(f'maxrow_list: ({maxrow_list})\n')
+      ## update together_counts
+      #for i_index in range(M):
+      #  for j_index in range(M):
+      #    if maxrow_list[i_index][0] == maxrow_list[j_index][0]:
+      #      together_counts[i_index, j_index] = together_counts[i_index, j_index] + 1
+
     print('finished all seed trials for k={}, calculating cophenetic correlation distance...'.format(k))
     # for MPI scatter/gather
     results.append(together_counts)
     numpy.set_printoptions(threshold=M*M)
-    print('consensus matrix shape ({})'.format(together_counts.shape))
-    sys.stdout.write('consensus matrix:')
-    for i_index in range(M):
-      sys.stdout.write('\n')
-      for j_index in range(M):
-        sys.stdout.write('{:>2.0f}'.format(together_counts[i_index, j_index]))
-    sys.stdout.write('\n')
+    #print('consensus matrix shape ({})'.format(together_counts.shape))
+    #sys.stdout.write('consensus matrix:')
+    #for i_index in range(M):
+    #  sys.stdout.write('\n')
+    #  for j_index in range(M):
+    #    sys.stdout.write('{:>2.0f}'.format(together_counts[i_index, j_index]))
+    #sys.stdout.write('\n')
     
     
     i_counts = together_counts.astype(int)    
@@ -185,27 +191,38 @@ try:
     cophenetic_correlation_distance, cophenetic_distance_matrix = scipy.cluster.hierarchy.cophenet(linkage_mat, cdm)
     print('k={}, cophenetic_correlation_distance: ({})'.format(k,cophenetic_correlation_distance))
     
+    # sort the samples in the consensus matrix for the plot
+    countsdf=pd.DataFrame(i_counts, columns=gct_data.columnnames, index=gct_data.columnnames)
+    kmeans = KMeans(n_clusters=2).fit(countsdf)
+    labels = kmeans.labels_
+
+    namedf = pd.DataFrame(labels, index = data.columnnames)
+    sortedNames = namedf.sort_values(0).index
+
+    countsdf = countsdf[sortedNames]
+    countsdf = countsdf.reindex(sortedNames)
+    sorted_i_counts = countsdf.to_numpy()
+    sc = NP_GCT(data=sorted_i_counts, rowNames=sortedNames, colNames=sortedNames )
+    sc.write_gct('{}.consensus.k.{}.sorted.gct'.format(args.outputfileprefix,k))
+
+
     fig, ax = plt.subplots()
     fig.set_figwidth(8)
     fig.set_figheight(8)
-    im = plt.imshow(i_counts, cmap='bwr', interpolation='nearest')
+    im = plt.imshow(sorted_i_counts, cmap='bwr', interpolation='nearest')
 
-    ax.set_xticks(np.arange(len(gct_data.columnnames)), labels=gct_data.columnnames)
-    ax.set_yticks(np.arange(len(gct_data.columnnames)), labels=gct_data.columnnames)
+    ax.set_xticks(np.arange(len(sortedNames)), labels=sortedNames)
+    ax.set_yticks(np.arange(len(sortedNames)), labels=sortedNnames)
 
     # Rotate the tick labels and set their alignment.
     plt.setp(ax.get_xticklabels(), rotation=45, ha="right",  rotation_mode="anchor")
-
-    # Loop over data dimensions and create text annotations.
-    #for i in range(len(gct_data.columnnames)):
-    #    for j in range(len(gct_data.columnnames)):
-    #        text = ax.text(j, i, i_counts[i, j],
-    #                   ha="center", va="center", color="w")
 
     ax.set_title("Consensus Matrix, k="+str(k))
     fig.tight_layout()
 
     plt.savefig('{}.consensus.k.{}.pdf'.format(args.outputfileprefix,k))  
+    with open('{}.cophentic.txt'.format(args.outputfileprefix), 'w') as file:
+        file.write(str(k) + "\t" + str(cophenetic_correlation_distance) + "\n")
 
 
   comm.gather(results, root=0)
