@@ -24,7 +24,7 @@ from mpi4py import MPI
 import numpy
 
 
-def runnmf(inputmatrix=None,kfactor=2,checkinterval=10,threshold=40,maxiterations=2000,seed=1,debug=False, comm=None):
+def runnmf(inputmatrix=None,kfactor=2,checkinterval=10,threshold=40,maxiterations=2000,seed=1,debug=False, comm=None, parastrategy='serial'):
   olddebug = debug
   #debug = True
   # read input file, create array on device
@@ -53,8 +53,12 @@ def runnmf(inputmatrix=None,kfactor=2,checkinterval=10,threshold=40,maxiteration
   #  print(tb_text)
   #  rank = 0
   #  numtasks = 1
-  rank = comm.Get_rank()
-  numtasks = comm.Get_size()
+  if comm == None or parastrategy in ('serial', 'kfactor'):
+    rank = 0
+    numtasks = 1
+  else:
+    rank = comm.Get_rank()
+    numtasks = comm.Get_size()
   V = inputmatrix
   if debug:
     print(f'{rank}: inputarray.shape: ({V.shape})\n')
@@ -249,58 +253,63 @@ def runnmf(inputmatrix=None,kfactor=2,checkinterval=10,threshold=40,maxiteration
       print(f'{rank}: Wnew: ({Wnew})\n')
       print(f'{rank}: Hnew: ({Hnew}), Hnew.shape: {Hnew.shape}\n')
       print(f'{rank}: Wnew: ({Wnew}), Wnew.shape: {Wnew.shape}\n')
-    # Daniel's code suggests flattening before the allgather and
-    # reshaping after.  Also, for recvbuf, use a tuple of receive
-    # array and sendcount
-    # looks like the old code, without ravel and sendcount was
-    # trying to send into the first row until it overran it...
-    #H = Hnew
-    #hsendcount = H.size
-    Hshape = H.shape
-    # ravel of subset of columns will put columns of the next row
-    # next to each other, which will change order elements when
-    # reshape happens.  Need to add columns for H and add rows for W...
-    Hnewflat = Hnew.ravel(order='F')
-    Hrecv = cp.empty(H.size)
-    if debug:
-      print(f'{rank}: Hnew {Hnew}\n')
-      print(f'{rank}: Hnewflat {Hnewflat}\n')
-      print(f'{rank}: H.shape {H.shape}\n')
-      print(f'{rank}: Hrecv.shape {Hrecv.shape}\n')
-    #comm.Allgatherv(sendbuf=Hnewflat,recvbuf=(Hrecv, Hnew.size))
-    comm.Allgatherv(sendbuf=Hnewflat,recvbuf=(Hrecv,Hsendcountlist))
-    if debug:
-      print(f'{rank}: after Allgatherv, Hrecv.shape {Hrecv.shape}\n')
-      print(f'{rank}: after Allgatherv, Hrecv {Hrecv}\n')
-    H = Hrecv.reshape(Hshape, order='F')
-    if debug:
-      print(f'{rank}: after Allgatherv, reshape, H.shape {H.shape}\n')
-      print(f'{rank}: after Allgatherv, reshape, H {H}\n')
-    Ht = H.transpose()
-    #W = Wnew
-    Wshape = W.shape
-    #Wnewflat = Wnew.ravel()
-    Wnewflat = Wnew.ravel(order='C')
-    Wrecv = cp.empty(W.size)
-    if debug:
-      print(f'{rank}: Wnew {Wnew}\n')
-      print(f'{rank}: Wnewflat {Wnewflat}\n')
-      print(f'{rank}: W.shape {W.shape}\n')
-      print(f'{rank}: Wrecv.shape {Wrecv.shape}\n')
-    comm.Allgatherv(sendbuf=Wnewflat,recvbuf=(Wrecv, Wsendcountlist))
-    #W = Wrecv.reshape(Wshape[0], -1)
-    W = Wrecv.reshape(Wshape, order='C')
+    if parastrategy == 'inputmatrix':
+      # Daniel's code suggests flattening before the allgather and
+      # reshaping after.  Also, for recvbuf, use a tuple of receive
+      # array and sendcount
+      # looks like the old code, without ravel and sendcount was
+      # trying to send into the first row until it overran it...
+      #H = Hnew
+      #hsendcount = H.size
+      Hshape = H.shape
+      # ravel of subset of columns will put columns of the next row
+      # next to each other, which will change order elements when
+      # reshape happens.  Need to add columns for H and add rows for W...
+      Hnewflat = Hnew.ravel(order='F')
+      Hrecv = cp.empty(H.size)
+      if debug:
+        print(f'{rank}: Hnew {Hnew}\n')
+        print(f'{rank}: Hnewflat {Hnewflat}\n')
+        print(f'{rank}: H.shape {H.shape}\n')
+        print(f'{rank}: Hrecv.shape {Hrecv.shape}\n')
+      #comm.Allgatherv(sendbuf=Hnewflat,recvbuf=(Hrecv, Hnew.size))
+      comm.Allgatherv(sendbuf=Hnewflat,recvbuf=(Hrecv,Hsendcountlist))
+      if debug:
+        print(f'{rank}: after Allgatherv, Hrecv.shape {Hrecv.shape}\n')
+        print(f'{rank}: after Allgatherv, Hrecv {Hrecv}\n')
+      H = Hrecv.reshape(Hshape, order='F')
+      if debug:
+        print(f'{rank}: after Allgatherv, reshape, H.shape {H.shape}\n')
+        print(f'{rank}: after Allgatherv, reshape, H {H}\n')
+      #W = Wnew
+      Wshape = W.shape
+      #Wnewflat = Wnew.ravel()
+      Wnewflat = Wnew.ravel(order='C')
+      Wrecv = cp.empty(W.size)
+      if debug:
+        print(f'{rank}: Wnew {Wnew}\n')
+        print(f'{rank}: Wnewflat {Wnewflat}\n')
+        print(f'{rank}: W.shape {W.shape}\n')
+        print(f'{rank}: Wrecv.shape {Wrecv.shape}\n')
+      comm.Allgatherv(sendbuf=Wnewflat,recvbuf=(Wrecv, Wsendcountlist))
+      #W = Wrecv.reshape(Wshape[0], -1)
+      W = Wrecv.reshape(Wshape, order='C')
+      # exchange W and H fragments
+    else:
+      H = Hnew
+      W = Wnew
+
     if debug:
       print(f'{rank}: after Allgatherv, W.shape {W.shape}\n')
       print(f'{rank}: after Allgatherv, W {W}\n')
+    Ht = H.transpose()
     Wt = W.transpose()
     
     if debug:
       print(f'{rank}: after update W\n')
       print(f'{rank}: H: ({H}), H.shape: {H.shape}\n')
       print(f'{rank}: W: ({W}), W.shape: {W.shape}\n')
-  
-    # exchange W and H fragments
+    
 
     # check classification for Ht
     # * Computes the maximum value of each row in d_A[] and stores its column index in d_Idx[].
@@ -382,6 +391,7 @@ if __name__ == '__main__':
   numtasks = comm.Get_size()
   print(f'rank: ({rank}), numtasks: ({numtasks})\n')
   parser = argparse.ArgumentParser()
+  parser.add_argument('-s', '--parastrategy', dest='parastrategy', action='store', choices=['kfactor', 'inputmatrix', 'serial'])
   parser.add_argument('-v', '--verbose', dest='verbose', action='store_true')
   parser.add_argument('-m', '--inputmatrix', dest='inputmatrix', action='store')
   parser.add_argument('-k', '--kfactor', dest='kfactor', action='store')
@@ -395,6 +405,6 @@ if __name__ == '__main__':
   threshold = int(args.threshold)
   debug = args.verbose
   V = cp.loadtxt(fname=args.inputmatrix)
-  W, H = runnmf(inputmatrix=V, kfactor=int(args.kfactor), checkinterval=checkinterval, threshold=threshold, maxiterations=maxiterations, seed=int(args.seed), debug=debug, comm=comm)
+  W, H = runnmf(inputmatrix=V, kfactor=int(args.kfactor), checkinterval=checkinterval, threshold=threshold, maxiterations=maxiterations, seed=int(args.seed), debug=debug, comm=comm, parastrategy=args.parastrategy)
   cp.savetxt(os.path.basename(args.inputmatrix) + '_H.txt', H)
   MPI.Finalize()
