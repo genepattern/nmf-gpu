@@ -82,6 +82,9 @@ from nmf_mgpu_mpi import runnmf
 ###########
 
 parser = argparse.ArgumentParser()
+parser.add_argument('-b', '--vref', dest='vref', action='store')
+parser.add_argument('-f', '--href', dest='href', action='store')
+parser.add_argument('-w', '--wref', dest='wref', action='store')
 parser.add_argument('-s', '--parastrategy', dest='parastrategy', action='store', choices=['kfactor', 'inputmatrix', 'serial'])
 parser.add_argument('-v', '--verbose', dest='verbose', action='store_true')
 parser.add_argument('-p', '--gpuprogrampath', dest='gpuprogrampath', action='store')
@@ -111,6 +114,9 @@ JOBDIR = args.jobdir
 debug = args.verbose
 # read INPUTFILE as gct file
 gct_data = NP_GCT(args.inputfile)
+vref = args.vref
+href = args.href
+wref = args.wref
 
 V = gct_data.data
 
@@ -145,6 +151,7 @@ try:
       
       start = time.process_time() 
       WH = runnmf(inputmatrix=V, kfactor=k, checkinterval=int(args.interval), threshold=int(args.consecutive), maxiterations=int(args.maxiterations), seed=seed, debug=DEBUGVAL, comm=comm, parastrategy=args.parastrategy)
+      #WH = runnmf(inputmatrix=V, kfactor=k, checkinterval=int(args.interval), threshold=int(args.consecutive), maxiterations=int(args.maxiterations), seed=seed, debug=DEBUGVAL, comm=comm, parastrategy=args.parastrategy, vref='/gpfs/wolf/trn008/scratch/kenneth/nmf-gpu/bin/bionmf.input.txt', href='/gpfs/wolf/trn008/scratch/kenneth/nmf-gpu/bin/bionmf.input.txt_H.txt', wref='/gpfs/wolf/trn008/scratch/kenneth/nmf-gpu/bin/bionmf.input.txt_W.txt')
       olddebug = debug
       debug = True
       if debug:
@@ -154,6 +161,16 @@ try:
 
           print("return from runnmf is " + str(WH)) 
       debug = olddebug
+      if rank == 0:
+        if vref == None or href == None or wref == None:
+          print(f'not loading reference checkfiles...\n')
+          print(f' vref=={vref}, href=={href}, wref=={wref}\n')
+        else:
+          Vref = cp.loadtxt(fname=vref)
+          Href = cp.loadtxt(fname=href)
+          Wref = cp.loadtxt(fname=wref)
+          print(f'Vref: ({Vref}\n')
+          print(f'Wref*Href: ({cp.matmul(Wref, Href)})\n')
       if (not WH):
           continue
       maxrow_list = []

@@ -340,31 +340,44 @@ def runnmf(inputmatrix=None,kfactor=2,checkinterval=10,threshold=40,maxiteration
    
     if iterationcount > checkinterval and divmod(iterationcount, checkinterval)[1] == 0:
       # check KL divergence
-      kldivergence = None
+      #kldivergence = None
+      kldivergence = True
       if kldivergence:
         #if rank == 0:
         #  print(f'Wnew: ({Wnew})\n')
         #  print(f'Hnew: ({Hnew})\n')
+        print(f'{rank}: Wnew.shape {Wnew.shape}, Hnew.shape {Hnew.shape}\n')
         WH = cp.dot(Wnew,Hnew)
         WH_data = WH.ravel()
+        print(f'{rank}: V[:,mystartcol:myendcol + 1].shape {V[:,mystartcol:myendcol + 1].shape}\n')
         X_data = V[:,mystartcol:myendcol + 1].ravel()
-        #if rank == 0:
-        #  print(f'{rank}: WH_data: ({WH_data})\n')
-        #  print(f'{rank}: X_data: ({X_data})\n')
+        if rank == 0:
+          print(f'{rank}: WH_data: ({WH_data})\n')
+          print(f'{rank}: X_data: ({X_data})\n')
         indices = X_data > EPSILON
         antiindices = X_data <= EPSILON
-        #if rank == 0:
-        #  print(f'{rank}: antiindices: ({antiindices})\n')
+        if rank == 0:
+          print(f'{rank}: antiindices: ({antiindices})\n')
         WH_data = WH_data[indices]
         X_data = X_data[indices]
         WH_data[WH_data == 0] = EPSILON
+        if rank == 0:
+          print(f'{rank}: after indices and EPSILON, WH_data: ({WH_data})\n')
+          print(f'{rank}: after indices and EPSILON, X_data: ({X_data})\n')
         #if rank == 0:
         #  print(f'{rank}: WH_data: ({WH_data})\n')
         #  print(f'{rank}: X_data: ({X_data})\n')
         sum_WH = cp.dot(cp.sum(W, axis=0), cp.sum(H, axis=1))
         div = X_data / WH_data
+        if rank == 0:
+          print(f'{rank}: X-data / WH_data, div: ({div})\n')
         res = cp.dot(X_data, cp.log(div))
+        if rank == 0:
+          print(f'{rank}: cp.log(div) ({cp.log(div)})\n')
+          print(f'{rank}: dot(X_data, cp.log(div)), res: ({res})\n')
         res += sum_WH - X_data.sum()
+        if rank == 0:
+          print(f'{rank}: adding sum_WH ({sum_WH}) - X_data.sum() ({X_data.sum()}) to starting res,  ending res: ({res})\n')
         #if rank == 0:
         #  print(f'{rank}: res: ({res})\n')
         #sendbuf = cp.asarray(res)
@@ -374,10 +387,14 @@ def runnmf(inputmatrix=None,kfactor=2,checkinterval=10,threshold=40,maxiteration
         #cp.cuda.get_current_stream().synchronize()
         #comm.Allreduce(sendbuf, recvbuf)
         #assert cp.allclose(recvbuf, sendbuf*numtasks)
-        totalres = cp.empty_like(res)
-        comm.Reduce(res, totalres, op=MPI.SUM, root=0)
-        #if rank == 0:
-        #  print(f'{rank}: totalres: ({totalres})\n')
+        #totalres = cp.empty_like(res)
+        totalres = cp.zeros_like(res)
+        if rank == 0:
+          print(f'{rank}: empty totalres: ({totalres})\n')
+        #comm.Reduce(res, totalres, op=MPI.SUM, root=0)
+        comm.Allreduce(res, totalres)
+        if rank == 0:
+          print(f'{rank}: afer Reduce, totalres: ({totalres})\n')
 
       
       # check classification
