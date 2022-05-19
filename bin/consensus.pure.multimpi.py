@@ -133,7 +133,9 @@ try:
     if debug:
       print('start of loop for k={}'.format(k))
     together_counts = numpy.zeros((M,M))
+    print(f'seed_list {seed_list}\n')
     for seed in seed_list:
+      print(f' start of seed {seed}\n')
       if debug:
         DEBUGOPTION = '--verbose'
         DEBUGVAL = True
@@ -143,11 +145,15 @@ try:
       
       start = time.process_time() 
       WH = runnmf(inputmatrix=V, kfactor=k, checkinterval=int(args.interval), threshold=int(args.consecutive), maxiterations=int(args.maxiterations), seed=seed, debug=DEBUGVAL, comm=comm, parastrategy=args.parastrategy)
+      olddebug = debug
+      debug = True
       if debug:
         if mpi_rank == 0:
+          print(f'after runnmf for seed {seed}\n')
           print("xxxxxxxxxxxxxxx Elapsed time for k=" + str(k) + ": " + str(time.process_time() - start));
 
           print("return from runnmf is " + str(WH)) 
+      debug = olddebug
       if (not WH):
           continue
       maxrow_list = []
@@ -170,12 +176,24 @@ try:
         
       if debug:
         print(f'maxrow_list: ({maxrow_list})\n')
-      # update together_counts
+      print(f'maxrow_list: ({maxrow_list})\n')
+      #update together_counts
+      #print(f'for seed {seed}, before updating, together_counts: ({together_counts})\n')
       for i_index in range(M):
         for j_index in range(M):
+          #print(f'{i_index}, {j_index}: maxrow_list[i_index][0] {maxrow_list[i_index][0]} maxrow_list[j_index][0] {maxrow_list[j_index][0]}\n')
           if maxrow_list[i_index][0] == maxrow_list[j_index][0]:
+            #print(f'setting together_counts[i_index, j_index] {together_counts[i_index, j_index]} to together_counts[i_index, j_index] + 1 {together_counts[i_index, j_index] +1}\n')
             together_counts[i_index, j_index] = together_counts[i_index, j_index] + 1
+          else:
+            #print(f'not setting together_counts[i_index, j_index] {together_counts[i_index, j_index]}\n')
+            pass
+      #print(f'after seed {seed}, together_counts: ({together_counts})\n')
+      #i = cp.asnumpy(cp.argmax(WH[1], axis=0))
+      #together_counts[i[:, None] == i[None, :]] += 1
     if mpi_rank == 0:
+      print(f'WH[1]: ({WH[1]})\n')
+      print(f'together_counts: ({together_counts})\n')
       print('finished all seed trials for k={}, calculating cophenetic correlation distance...'.format(k))
     # for MPI scatter/gather
     results.append(together_counts)
@@ -186,7 +204,7 @@ try:
       for i_index in range(M):
         sys.stdout.write('\n')
         for j_index in range(M):
-          sys.stdout.write('{:>2.0f}'.format(together_counts[i_index, j_index]/10))
+          sys.stdout.write('{:>2.0f}'.format(together_counts[i_index, j_index]/1))
       sys.stdout.write('\n')
     
     

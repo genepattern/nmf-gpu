@@ -8,6 +8,7 @@
 # https://mpi4py.readthedocs.io/en/stable/tutorial.html#cuda-aware-mpi-python-gpu-arrays
 # https://mpi4py.readthedocs.io/en/stable/reference/mpi4py.MPI.Comm.html#mpi4py.MPI.Comm.Allgatherv
 # https://buildmedia.readthedocs.org/media/pdf/mpi4py/latest/mpi4py.pdf
+# https://github.com/scikit-learn/scikit-learn/blob/5f3d1e57a91e7c89fe3485971188f1ecd335f2c1/sklearn/decomposition/_nmf.py#L856
 # test/bionmf.input.txt  -k {k}  -j 10  -t 40  -i 2000 -s {seed}
 # sys.argv[1] path to txt array
 # -k k factor
@@ -25,6 +26,7 @@ import numpy
 
 
 def runnmf(inputmatrix=None,kfactor=2,checkinterval=10,threshold=40,maxiterations=2000,seed=1,debug=False, comm=None, parastrategy='serial'):
+  EPSILON = cp.finfo(cp.float32).eps
   olddebug = debug
   #debug = True
   # read input file, create array on device
@@ -154,6 +156,8 @@ def runnmf(inputmatrix=None,kfactor=2,checkinterval=10,threshold=40,maxiteration
     print(f'{rank}: initial Ht: ({Ht})\n')
     print(f'{rank}: initial W: ({W})\n')
     print(f'{rank}: initial Wt: ({Wt})\n')
+  #print(f'{rank}: V: ({V})\n')
+  #print(f'{rank}: WH: ({cp.matmul(W,H)})\n')
   
   iterationcount = 0
   oldclassification = None
@@ -175,18 +179,20 @@ def runnmf(inputmatrix=None,kfactor=2,checkinterval=10,threshold=40,maxiteration
       print(f'{rank}: W.shape {W.shape} H[:,mystartcol:myendcol + 1].shape {H[:,mystartcol:myendcol + 1].shape}, mystartcol {mystartcol}, myendcol: {myendcol}\n')
       print(f'{rank}: H: {H}\n')
       print(f'{rank}: H[:,mystartcol:myendcol + 1]: {H[:,mystartcol:myendcol + 1]}\n')
-    WH = cp.matmul(W, H[:,mystartcol:myendcol + 1])
+    WHm = cp.matmul(W, H[:,mystartcol:myendcol + 1])
     if debug:
-      print(f'{rank}: after matmul, WH.shape: {WH.shape}\n')
-      print(f'{rank}: WH: ({WH})\n')
+      print(f'{rank}: after matmul, WH.shape: {WHm.shape}\n')
+      print(f'{rank}: WHm: ({WHm})\n')
+    print(f'{rank}: update H, matmul(W, H[:,mystartcol:myendcol + 1]), WHm: ({WHm})\n')
   
     # AUX = V (input matrix) ./ (W*H)
     # AUX (N x M)
     #AUX = cp.divide(V, WH)
     # overwrite WH, I wonder if that breaks anything...
-    WH = cp.divide(V[:,mystartcol:myendcol + 1], WH)
+    WH = cp.divide(V[:,mystartcol:myendcol + 1], WHm)
     if debug:
       print(f'{rank}: after divide, WH.shape: {WH.shape}\n')
+    print(f'{rank}: update H, divide(V[:,mystartcol:myendcol + 1], WHm), WH: ({WH})\n')
     #print(f'AUX: ({AUX})\n')
     if debug:
       print(f'{rank}: WH: ({WH})\n')
@@ -200,6 +206,7 @@ def runnmf(inputmatrix=None,kfactor=2,checkinterval=10,threshold=40,maxiteration
       print(f'{rank}: Wt.shape {Wt.shape} WH.shape {WH.shape} WTAUX.shape {WTAUX.shape}\n')
       print(f'{rank}:  WTAUX.shape: {WTAUX.shape}\n')
       print(f'{rank}: WTAUX: ({WTAUX})\n')
+    print(f'{rank}: update H, matmul(Wt, WH), WTAUX: ({WTAUX})\n')
     
     # how do we get reduced an accumulated ACCWT below?
     # sum each column down to a single value...
@@ -219,40 +226,7 @@ def runnmf(inputmatrix=None,kfactor=2,checkinterval=10,threshold=40,maxiteration
     Hnew = cp.multiply(H[:,mystartcol:myendcol + 1], WTAUXDIV)
     if debug:
         print(f'{rank}: Hnew: ({Hnew}, Hnew.shape {Hnew.shape}, H[:,mystartcol:myendcol + 1].shape {H[:,mystartcol:myendcol + 1].shape}, WTAUXDIV.shape {WTAUXDIV.shape})\n')
-    
-    if debug:
-      print(f'{rank}: before update W\n')
-    # update W
-    # * WH(BLN,Mp) = W(BLN,Kp) * H
-    # * WH(BLN,Mp) = Vrow(BLN,Mp) ./ WH(BLN,Mp)
-    # * Waux(BLN,Kp) = WH(BLN,Mp) * H'
-    # * W(BLN,Kp) = W(BLN,Kp) .* Waux(BLN,Kp) ./ accum_h
-    # generate ACCUMH
-    ACCH = cp.sum(H, axis=1)
-    if debug:
-      print(f'{rank}: H: ({H})\n')
-      print(f'{rank}: ACCH: ({ACCH})\n')
-    
-    WH = cp.matmul(W[mystartrow:myendrow + 1,:], H)
-    WH = cp.divide(V[mystartrow:myendrow + 1,:], WH)
-    # from update_W notes:
-    #  * Waux(BLN,Kp) = WH(BLN,Mp) * H'
-    # should I be using the original Ht here?
-    HTAUX = cp.matmul(WH, Ht)
-    if debug:
-      print(f'{rank}: HTAUX: ({HTAUX})\n')
-    
-    # * W(BLN,Kp) = W(BLN,Kp) .* Waux(BLN,Kp) ./ accum_h
-    WWAUX = cp.multiply(W[mystartrow:myendrow + 1,:], HTAUX)
-    if debug:
-      print(f'{rank}: WWAUX: ({WWAUX})\n')
-    
-    olddebug = debug
-    Wnew = cp.divide(WWAUX, ACCH)
-    if debug:
-      print(f'{rank}: Wnew: ({Wnew})\n')
-      print(f'{rank}: Hnew: ({Hnew}), Hnew.shape: {Hnew.shape}\n')
-      print(f'{rank}: Wnew: ({Wnew}), Wnew.shape: {Wnew.shape}\n')
+    # sync H to all devices
     if parastrategy == 'inputmatrix':
       # Daniel's code suggests flattening before the allgather and
       # reshaping after.  Also, for recvbuf, use a tuple of receive
@@ -277,10 +251,50 @@ def runnmf(inputmatrix=None,kfactor=2,checkinterval=10,threshold=40,maxiteration
       if debug:
         print(f'{rank}: after Allgatherv, Hrecv.shape {Hrecv.shape}\n')
         print(f'{rank}: after Allgatherv, Hrecv {Hrecv}\n')
-      H = Hrecv.reshape(Hshape, order='F')
+      Hnewfull = Hrecv.reshape(Hshape, order='F')
       if debug:
         print(f'{rank}: after Allgatherv, reshape, H.shape {H.shape}\n')
         print(f'{rank}: after Allgatherv, reshape, H {H}\n')
+      H = Hnewfull
+    else:
+      H = Hnew
+    Ht = H.transpose()
+    
+    if debug:
+      print(f'{rank}: before update W\n')
+    # update W
+    # * WH(BLN,Mp) = W(BLN,Kp) * H
+    # * WH(BLN,Mp) = Vrow(BLN,Mp) ./ WH(BLN,Mp)
+    # * Waux(BLN,Kp) = WH(BLN,Mp) * H'
+    # * W(BLN,Kp) = W(BLN,Kp) .* Waux(BLN,Kp) ./ accum_h
+    # generate ACCUMH
+    ACCH = cp.sum(H, axis=1)
+    if debug:
+      print(f'{rank}: H: ({H})\n')
+      print(f'{rank}: ACCH: ({ACCH})\n')
+    
+    WHm = cp.matmul(W[mystartrow:myendrow + 1,:], H)
+    WH = cp.divide(V[mystartrow:myendrow + 1,:], WHm)
+    # from update_W notes:
+    #  * Waux(BLN,Kp) = WH(BLN,Mp) * H'
+    # should I be using the original Ht here?
+    HTAUX = cp.matmul(WH, Ht)
+    if debug:
+      print(f'{rank}: HTAUX: ({HTAUX})\n')
+    
+    # * W(BLN,Kp) = W(BLN,Kp) .* Waux(BLN,Kp) ./ accum_h
+    WWAUX = cp.multiply(W[mystartrow:myendrow + 1,:], HTAUX)
+    if debug:
+      print(f'{rank}: WWAUX: ({WWAUX})\n')
+    
+    olddebug = debug
+    Wnew = cp.divide(WWAUX, ACCH)
+    if debug:
+      print(f'{rank}: Wnew: ({Wnew})\n')
+      print(f'{rank}: Hnew: ({Hnew}), Hnew.shape: {Hnew.shape}\n')
+      print(f'{rank}: Wnew: ({Wnew}), Wnew.shape: {Wnew.shape}\n')
+    # sync W to all devices
+    if parastrategy == 'inputmatrix':
       #W = Wnew
       Wshape = W.shape
       #Wnewflat = Wnew.ravel()
@@ -293,8 +307,10 @@ def runnmf(inputmatrix=None,kfactor=2,checkinterval=10,threshold=40,maxiteration
         print(f'{rank}: Wrecv.shape {Wrecv.shape}\n')
       comm.Allgatherv(sendbuf=Wnewflat,recvbuf=(Wrecv, Wsendcountlist))
       #W = Wrecv.reshape(Wshape[0], -1)
-      W = Wrecv.reshape(Wshape, order='C')
-      # exchange W and H fragments
+      Wnewfull = Wrecv.reshape(Wshape, order='C')
+      #if rank == 0:
+      #  print(f'{rank}, {iterationcount} intermediate matmul(Wnewfull, Hnewfull): ({cp.matmul(Wnewfull, Hnewfull)})\n')
+      W = Wnewfull
     else:
       H = Hnew
       W = Wnew
@@ -302,13 +318,14 @@ def runnmf(inputmatrix=None,kfactor=2,checkinterval=10,threshold=40,maxiteration
     if debug:
       print(f'{rank}: after Allgatherv, W.shape {W.shape}\n')
       print(f'{rank}: after Allgatherv, W {W}\n')
-    Ht = H.transpose()
     Wt = W.transpose()
     
     if debug:
       print(f'{rank}: after update W\n')
       print(f'{rank}: H: ({H}), H.shape: {H.shape}\n')
       print(f'{rank}: W: ({W}), W.shape: {W.shape}\n')
+    print(f'{rank}, {iterationcount}: after sync, V: ({V})\n')
+    print(f'{rank}, {iterationcount}: after sync, WH: ({cp.matmul(W,H)})\n')
     
 
     # check classification for Ht
@@ -322,6 +339,47 @@ def runnmf(inputmatrix=None,kfactor=2,checkinterval=10,threshold=40,maxiteration
     # Ht is M x k, need array M x 1 to store column index
    
     if iterationcount > checkinterval and divmod(iterationcount, checkinterval)[1] == 0:
+      # check KL divergence
+      kldivergence = None
+      if kldivergence:
+        #if rank == 0:
+        #  print(f'Wnew: ({Wnew})\n')
+        #  print(f'Hnew: ({Hnew})\n')
+        WH = cp.dot(Wnew,Hnew)
+        WH_data = WH.ravel()
+        X_data = V[:,mystartcol:myendcol + 1].ravel()
+        #if rank == 0:
+        #  print(f'{rank}: WH_data: ({WH_data})\n')
+        #  print(f'{rank}: X_data: ({X_data})\n')
+        indices = X_data > EPSILON
+        antiindices = X_data <= EPSILON
+        #if rank == 0:
+        #  print(f'{rank}: antiindices: ({antiindices})\n')
+        WH_data = WH_data[indices]
+        X_data = X_data[indices]
+        WH_data[WH_data == 0] = EPSILON
+        #if rank == 0:
+        #  print(f'{rank}: WH_data: ({WH_data})\n')
+        #  print(f'{rank}: X_data: ({X_data})\n')
+        sum_WH = cp.dot(cp.sum(W, axis=0), cp.sum(H, axis=1))
+        div = X_data / WH_data
+        res = cp.dot(X_data, cp.log(div))
+        res += sum_WH - X_data.sum()
+        #if rank == 0:
+        #  print(f'{rank}: res: ({res})\n')
+        #sendbuf = cp.asarray(res)
+        #recvbuf = cp.empty_like(sendbuf)
+        #assert hasattr(sendbuf, '__cuda_array_interface__')
+        #assert hasattr(recvbuf, '__cuda_array_interface__')
+        #cp.cuda.get_current_stream().synchronize()
+        #comm.Allreduce(sendbuf, recvbuf)
+        #assert cp.allclose(recvbuf, sendbuf*numtasks)
+        totalres = cp.empty_like(res)
+        comm.Reduce(res, totalres, op=MPI.SUM, root=0)
+        #if rank == 0:
+        #  print(f'{rank}: totalres: ({totalres})\n')
+
+      
       # check classification
       # H is kxM matrix.  classification is 1xM array, with each element
       # the row index of the max of the elements in that column.
@@ -371,7 +429,13 @@ def runnmf(inputmatrix=None,kfactor=2,checkinterval=10,threshold=40,maxiteration
           #cp.savetxt(os.path.basename(args.inputmatrix) + '_H.txt', H)
           #break
           debug = olddebug
-          return((W,H))
+          if debug:
+            print(f'{rank}: V: ({V})\n')
+            print(f'{rank}: WH: ({cp.matmul(W,H)})\n')
+          print(f'{rank}: WH: ({cp.matmul(W,H)})\n')
+          #print(f'{rank}: WH: ({cp.matmul(W,Hnewfull)})\n')
+          #return((W,Hnewfull))
+          return(W,H)
       else:
         if debug:
           if type(oldclassification) == type(newclassification):
