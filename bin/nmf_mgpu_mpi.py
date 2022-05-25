@@ -69,7 +69,7 @@ def runnmf(inputmatrix=None,kfactor=2,checkinterval=10,threshold=40,maxiteration
   # seed the PRNG
   #cp.random.seed(int(args.seed))
   #cp.random.seed(seed)
-  cp.random.seed(seed + rank)
+  cp.random.seed(seed)
   
   N = V.shape[0]
   M = V.shape[1]
@@ -157,6 +157,10 @@ def runnmf(inputmatrix=None,kfactor=2,checkinterval=10,threshold=40,maxiteration
     print(f'{rank}: initial Ht: ({Ht})\n')
     print(f'{rank}: initial W: ({W})\n')
     print(f'{rank}: initial Wt: ({Wt})\n')
+  #print(f'{rank}: initial H: ({H})\n')
+  #print(f'{rank}: initial Ht: ({Ht})\n')
+  #print(f'{rank}: initial W: ({W})\n')
+  #print(f'{rank}: initial Wt: ({Wt})\n')
   #print(f'{rank}: V: ({V})\n')
   #print(f'{rank}: WH: ({cp.matmul(W,H)})\n')
   
@@ -184,7 +188,7 @@ def runnmf(inputmatrix=None,kfactor=2,checkinterval=10,threshold=40,maxiteration
     if debug:
       print(f'{rank}: after matmul, WH.shape: {WHm.shape}\n')
       print(f'{rank}: WHm: ({WHm})\n')
-    print(f'{rank}: update H, matmul(W, H[:,mystartcol:myendcol + 1]), WHm: ({WHm})\n')
+    #print(f'{rank}: update H, matmul(W, H[:,mystartcol:myendcol + 1]), WHm: ({WHm})\n')
   
     # AUX = V (input matrix) ./ (W*H)
     # AUX (N x M)
@@ -193,7 +197,7 @@ def runnmf(inputmatrix=None,kfactor=2,checkinterval=10,threshold=40,maxiteration
     WH = cp.divide(V[:,mystartcol:myendcol + 1], WHm)
     if debug:
       print(f'{rank}: after divide, WH.shape: {WH.shape}\n')
-    print(f'{rank}: update H, divide(V[:,mystartcol:myendcol + 1], WHm), WH: ({WH})\n')
+    #print(f'{rank}: update H, divide(V[:,mystartcol:myendcol + 1], WHm), WH: ({WH})\n')
     #print(f'AUX: ({AUX})\n')
     if debug:
       print(f'{rank}: WH: ({WH})\n')
@@ -207,7 +211,7 @@ def runnmf(inputmatrix=None,kfactor=2,checkinterval=10,threshold=40,maxiteration
       print(f'{rank}: Wt.shape {Wt.shape} WH.shape {WH.shape} WTAUX.shape {WTAUX.shape}\n')
       print(f'{rank}:  WTAUX.shape: {WTAUX.shape}\n')
       print(f'{rank}: WTAUX: ({WTAUX})\n')
-    print(f'{rank}: update H, matmul(Wt, WH), WTAUX: ({WTAUX})\n')
+    #print(f'{rank}: update H, matmul(Wt, WH), WTAUX: ({WTAUX})\n')
     
     # how do we get reduced an accumulated ACCWT below?
     # sum each column down to a single value...
@@ -227,6 +231,7 @@ def runnmf(inputmatrix=None,kfactor=2,checkinterval=10,threshold=40,maxiteration
     Hnew = cp.multiply(H[:,mystartcol:myendcol + 1], WTAUXDIV)
     if debug:
         print(f'{rank}: Hnew: ({Hnew}, Hnew.shape {Hnew.shape}, H[:,mystartcol:myendcol + 1].shape {H[:,mystartcol:myendcol + 1].shape}, WTAUXDIV.shape {WTAUXDIV.shape})\n')
+    print(f'{rank}: Hnew: ({Hnew})\n')
     # sync H to all devices
     if parastrategy == 'inputmatrix':
       # Daniel's code suggests flattening before the allgather and
@@ -248,6 +253,7 @@ def runnmf(inputmatrix=None,kfactor=2,checkinterval=10,threshold=40,maxiteration
         print(f'{rank}: H.shape {H.shape}\n')
         print(f'{rank}: Hrecv.shape {Hrecv.shape}\n')
       #comm.Allgatherv(sendbuf=Hnewflat,recvbuf=(Hrecv, Hnew.size))
+      cp.cuda.Stream.null.synchronize()
       comm.Allgatherv(sendbuf=Hnewflat,recvbuf=(Hrecv,Hsendcountlist))
       if debug:
         print(f'{rank}: after Allgatherv, Hrecv.shape {Hrecv.shape}\n')
@@ -258,6 +264,7 @@ def runnmf(inputmatrix=None,kfactor=2,checkinterval=10,threshold=40,maxiteration
         print(f'{rank}: after Allgatherv, reshape, H {H}\n')
       H = Hnewfull
     else:
+      cp.cuda.Stream.null.synchronize()
       H = Hnew
     Ht = H.transpose()
     
@@ -294,6 +301,7 @@ def runnmf(inputmatrix=None,kfactor=2,checkinterval=10,threshold=40,maxiteration
       print(f'{rank}: Wnew: ({Wnew})\n')
       print(f'{rank}: Hnew: ({Hnew}), Hnew.shape: {Hnew.shape}\n')
       print(f'{rank}: Wnew: ({Wnew}), Wnew.shape: {Wnew.shape}\n')
+    print(f'{rank}: Wnew: ({Wnew})\n')
     # sync W to all devices
     if parastrategy == 'inputmatrix':
       #W = Wnew
@@ -306,6 +314,7 @@ def runnmf(inputmatrix=None,kfactor=2,checkinterval=10,threshold=40,maxiteration
         print(f'{rank}: Wnewflat {Wnewflat}\n')
         print(f'{rank}: W.shape {W.shape}\n')
         print(f'{rank}: Wrecv.shape {Wrecv.shape}\n')
+      cp.cuda.Stream.null.synchronize()
       comm.Allgatherv(sendbuf=Wnewflat,recvbuf=(Wrecv, Wsendcountlist))
       #W = Wrecv.reshape(Wshape[0], -1)
       Wnewfull = Wrecv.reshape(Wshape, order='C')
@@ -313,6 +322,7 @@ def runnmf(inputmatrix=None,kfactor=2,checkinterval=10,threshold=40,maxiteration
       #  print(f'{rank}, {iterationcount} intermediate matmul(Wnewfull, Hnewfull): ({cp.matmul(Wnewfull, Hnewfull)})\n')
       W = Wnewfull
     else:
+      cp.cuda.Stream.null.synchronize()
       H = Hnew
       W = Wnew
 
@@ -325,7 +335,11 @@ def runnmf(inputmatrix=None,kfactor=2,checkinterval=10,threshold=40,maxiteration
       print(f'{rank}: after update W\n')
       print(f'{rank}: H: ({H}), H.shape: {H.shape}\n')
       print(f'{rank}: W: ({W}), W.shape: {W.shape}\n')
+    #print(f'{rank}, {iterationcount}: after sync, V: ({V})\n')
+    #print(f'{rank}, {iterationcount}: after sync, WH: ({cp.matmul(W,H)})\n')
     print(f'{rank}, {iterationcount}: after sync, V: ({V})\n')
+    print(f'{rank}, {iterationcount}: after sync, W: ({W})\n')
+    print(f'{rank}, {iterationcount}: after sync, H: ({H})\n')
     print(f'{rank}, {iterationcount}: after sync, WH: ({cp.matmul(W,H)})\n')
     
 
@@ -341,32 +355,35 @@ def runnmf(inputmatrix=None,kfactor=2,checkinterval=10,threshold=40,maxiteration
    
     if iterationcount > checkinterval and divmod(iterationcount, checkinterval)[1] == 0:
       # check KL divergence
-      #kldivergence = None
-      kldivergence = True
+      kldivergence = None
+      #kldivergence = True
       if kldivergence:
         #if rank == 0:
         #  print(f'Wnew: ({Wnew})\n')
         #  print(f'Hnew: ({Hnew})\n')
-        print(f'{rank}: Wnew.shape {Wnew.shape}, Hnew.shape {Hnew.shape}\n')
+        #print(f'{rank}: Wnew.shape {Wnew.shape}, Hnew.shape {Hnew.shape}\n')
         WHkl = cp.dot(Wnew,Hnew)
-        print(f'{rank}: WHkl.shape ({WHkl.shape})\n')
+        #print(f'{rank}: WHkl.shape ({WHkl.shape})\n')
         WH_datakl = WHkl.ravel()
-        print(f'{rank}: V[mystartrow:myendrow + 1,mystartcol:myendcol + 1].shape {V[:,mystartcol:myendcol + 1].shape}\n')
+        #print(f'{rank}: V[mystartrow:myendrow + 1,mystartcol:myendcol + 1].shape {V[:,mystartcol:myendcol + 1].shape}\n')
         #X_datakl = V[:,mystartcol:myendcol + 1].ravel()
         X_datakl = V[mystartrow:myendrow + 1,mystartcol:myendcol + 1].ravel()
         if rank == 0:
-          print(f'{rank}: WH_datakl: ({WH_datakl})\n')
-          print(f'{rank}: X_datakl: ({X_datakl})\n')
+          #print(f'{rank}: WH_datakl: ({WH_datakl})\n')
+          #print(f'{rank}: X_datakl: ({X_datakl})\n')
+          pass
         indices = X_datakl > EPSILON
         antiindices = X_datakl <= EPSILON
         if rank == 0:
-          print(f'{rank}: antiindices: ({antiindices})\n')
+          #print(f'{rank}: antiindices: ({antiindices})\n')
+          pass
         WH_datakl = WH_datakl[indices]
         X_datakl = X_datakl[indices]
         WH_datakl[WH_datakl == 0] = EPSILON
         if rank == 0:
-          print(f'{rank}: after indices and EPSILON, WH_datakl: ({WH_datakl})\n')
-          print(f'{rank}: after indices and EPSILON, X_datakl: ({X_datakl})\n')
+          #print(f'{rank}: after indices and EPSILON, WH_datakl: ({WH_datakl})\n')
+          #print(f'{rank}: after indices and EPSILON, X_datakl: ({X_datakl})\n')
+          pass
         #if rank == 0:
         #  print(f'{rank}: WH_data: ({WH_data})\n')
         #  print(f'{rank}: X_data: ({X_data})\n')
@@ -374,14 +391,17 @@ def runnmf(inputmatrix=None,kfactor=2,checkinterval=10,threshold=40,maxiteration
         sum_WH = cp.dot(cp.sum(Wnew, axis=0), cp.sum(Hnew, axis=1))
         div = X_datakl / WH_datakl
         if rank == 0:
-          print(f'{rank}: X_datakl / WH_datakl, div: ({div})\n')
+          #print(f'{rank}: X_datakl / WH_datakl, div: ({div})\n')
+          pass
         res = cp.dot(X_datakl, cp.log(div))
         if rank == 0:
-          print(f'{rank}: cp.log(div) ({cp.log(div)})\n')
-          print(f'{rank}: dot(X_data, cp.log(div)), res: ({res})\n')
+          #print(f'{rank}: cp.log(div) ({cp.log(div)})\n')
+          #print(f'{rank}: dot(X_data, cp.log(div)), res: ({res})\n')
+          pass
         res += sum_WH - X_datakl.sum()
         if rank == 0:
-          print(f'{rank}: adding sum_WH ({sum_WH}) - X_datakl.sum() ({X_datakl.sum()}) to starting res,  ending res: ({res})\n')
+          #print(f'{rank}: adding sum_WH ({sum_WH}) - X_datakl.sum() ({X_datakl.sum()}) to starting res,  ending res: ({res})\n')
+          pass
         #if rank == 0:
         #  print(f'{rank}: res: ({res})\n')
         #sendbuf = cp.asarray(res)
@@ -394,11 +414,13 @@ def runnmf(inputmatrix=None,kfactor=2,checkinterval=10,threshold=40,maxiteration
         #totalres = cp.empty_like(res)
         totalres = cp.zeros_like(res)
         if rank == 0:
-          print(f'{rank}: empty totalres: ({totalres})\n')
+          #print(f'{rank}: empty totalres: ({totalres})\n')
+          pass
         #comm.Reduce(res, totalres, op=MPI.SUM, root=0)
         comm.Allreduce(res, totalres)
         if rank == 0:
-          print(f'{rank}: afer Reduce, totalres: ({totalres})\n')
+          #print(f'{rank}: afer Reduce, totalres: ({totalres})\n')
+          pass
 
       
       # check classification
