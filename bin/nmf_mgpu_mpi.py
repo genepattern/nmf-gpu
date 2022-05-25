@@ -1,4 +1,4 @@
-#!/gpfs/wolf/trn008/proj-shared/teammesirov/conda_envs/cupyenv/bin/python3
+#!/expanse/lustre/projects/ddp242/kenneth/pure/install/venv/bin/python3
 # https://www.pnas.org/doi/10.1073/pnas.0308531101?url_ver=Z39.88-2003&rfr_id=ori%3Arid%3Acrossref.org&rfr_dat=cr_pub++0pubmed
 # https://bmcbioinformatics.biomedcentral.com/track/pdf/10.1186/s12859-015-0485-4.pdf
 # CUDA Hook Library: Failed to find symbol mem_find_dreg_entries, /gpfs/wolf/trn00
@@ -68,7 +68,8 @@ def runnmf(inputmatrix=None,kfactor=2,checkinterval=10,threshold=40,maxiteration
   
   # seed the PRNG
   #cp.random.seed(int(args.seed))
-  cp.random.seed(seed)
+  #cp.random.seed(seed)
+  cp.random.seed(seed + rank)
   
   N = V.shape[0]
   M = V.shape[1]
@@ -347,37 +348,40 @@ def runnmf(inputmatrix=None,kfactor=2,checkinterval=10,threshold=40,maxiteration
         #  print(f'Wnew: ({Wnew})\n')
         #  print(f'Hnew: ({Hnew})\n')
         print(f'{rank}: Wnew.shape {Wnew.shape}, Hnew.shape {Hnew.shape}\n')
-        WH = cp.dot(Wnew,Hnew)
-        WH_data = WH.ravel()
-        print(f'{rank}: V[:,mystartcol:myendcol + 1].shape {V[:,mystartcol:myendcol + 1].shape}\n')
-        X_data = V[:,mystartcol:myendcol + 1].ravel()
+        WHkl = cp.dot(Wnew,Hnew)
+        print(f'{rank}: WHkl.shape ({WHkl.shape})\n')
+        WH_datakl = WHkl.ravel()
+        print(f'{rank}: V[mystartrow:myendrow + 1,mystartcol:myendcol + 1].shape {V[:,mystartcol:myendcol + 1].shape}\n')
+        #X_datakl = V[:,mystartcol:myendcol + 1].ravel()
+        X_datakl = V[mystartrow:myendrow + 1,mystartcol:myendcol + 1].ravel()
         if rank == 0:
-          print(f'{rank}: WH_data: ({WH_data})\n')
-          print(f'{rank}: X_data: ({X_data})\n')
-        indices = X_data > EPSILON
-        antiindices = X_data <= EPSILON
+          print(f'{rank}: WH_datakl: ({WH_datakl})\n')
+          print(f'{rank}: X_datakl: ({X_datakl})\n')
+        indices = X_datakl > EPSILON
+        antiindices = X_datakl <= EPSILON
         if rank == 0:
           print(f'{rank}: antiindices: ({antiindices})\n')
-        WH_data = WH_data[indices]
-        X_data = X_data[indices]
-        WH_data[WH_data == 0] = EPSILON
+        WH_datakl = WH_datakl[indices]
+        X_datakl = X_datakl[indices]
+        WH_datakl[WH_datakl == 0] = EPSILON
         if rank == 0:
-          print(f'{rank}: after indices and EPSILON, WH_data: ({WH_data})\n')
-          print(f'{rank}: after indices and EPSILON, X_data: ({X_data})\n')
+          print(f'{rank}: after indices and EPSILON, WH_datakl: ({WH_datakl})\n')
+          print(f'{rank}: after indices and EPSILON, X_datakl: ({X_datakl})\n')
         #if rank == 0:
         #  print(f'{rank}: WH_data: ({WH_data})\n')
         #  print(f'{rank}: X_data: ({X_data})\n')
-        sum_WH = cp.dot(cp.sum(W, axis=0), cp.sum(H, axis=1))
-        div = X_data / WH_data
+        #sum_WH = cp.dot(cp.sum(W, axis=0), cp.sum(H, axis=1))
+        sum_WH = cp.dot(cp.sum(Wnew, axis=0), cp.sum(Hnew, axis=1))
+        div = X_datakl / WH_datakl
         if rank == 0:
-          print(f'{rank}: X-data / WH_data, div: ({div})\n')
-        res = cp.dot(X_data, cp.log(div))
+          print(f'{rank}: X_datakl / WH_datakl, div: ({div})\n')
+        res = cp.dot(X_datakl, cp.log(div))
         if rank == 0:
           print(f'{rank}: cp.log(div) ({cp.log(div)})\n')
           print(f'{rank}: dot(X_data, cp.log(div)), res: ({res})\n')
-        res += sum_WH - X_data.sum()
+        res += sum_WH - X_datakl.sum()
         if rank == 0:
-          print(f'{rank}: adding sum_WH ({sum_WH}) - X_data.sum() ({X_data.sum()}) to starting res,  ending res: ({res})\n')
+          print(f'{rank}: adding sum_WH ({sum_WH}) - X_datakl.sum() ({X_datakl.sum()}) to starting res,  ending res: ({res})\n')
         #if rank == 0:
         #  print(f'{rank}: res: ({res})\n')
         #sendbuf = cp.asarray(res)
@@ -449,7 +453,7 @@ def runnmf(inputmatrix=None,kfactor=2,checkinterval=10,threshold=40,maxiteration
           if debug:
             print(f'{rank}: V: ({V})\n')
             print(f'{rank}: WH: ({cp.matmul(W,H)})\n')
-          print(f'{rank}: WH: ({cp.matmul(W,H)})\n')
+          #print(f'{rank}: WH: ({cp.matmul(W,H)})\n')
           #print(f'{rank}: WH: ({cp.matmul(W,Hnewfull)})\n')
           #return((W,Hnewfull))
           return(W,H)

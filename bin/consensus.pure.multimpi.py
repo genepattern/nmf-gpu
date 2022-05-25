@@ -1,4 +1,4 @@
-#!/gpfs/wolf/trn008/proj-shared/teammesirov/conda_envs/cupyenv/bin/python
+#!/expanse/lustre/projects/ddp242/kenneth/pure/install/venv/bin/python3
 # from NMF GPU Functional specification document:
 # ...
 #A pseudocode representation of the workflow we’re looking for is below. We are also interested in timing statistics - most important is wall clock time from start to finish, but if we can time each iteration of k that would be very helpful also.
@@ -75,9 +75,9 @@ def divide_almost_equally(arr, num_chunks):
 
 
 ############  add local functions
-sys.path.append("/gpfs/wolf/trn008/scratch/kenneth/nmf-gpu/wrapper")
+sys.path.append("/expanse/lustre/projects/ddp242/kenneth/pure/nmf-gpu/wrapper")
 from readgct import NP_GCT
-sys.path.append("/gpfs/wolf/trn008/scratch/kenneth/nmf-gpu/bin")
+sys.path.append("/expanse/lustre/projects/ddp242/kenneth/pure/nmf-gpu/bin")
 from nmf_mgpu_mpi import runnmf
 ###########
 
@@ -193,7 +193,7 @@ try:
         
       if debug:
         print(f'maxrow_list: ({maxrow_list})\n')
-      print(f'maxrow_list: ({maxrow_list})\n')
+      #print(f'maxrow_list: ({maxrow_list})\n')
       #update together_counts
       #print(f'for seed {seed}, before updating, together_counts: ({together_counts})\n')
       for i_index in range(M):
