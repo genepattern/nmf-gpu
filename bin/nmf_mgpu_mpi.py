@@ -167,6 +167,7 @@ def runnmf(inputmatrix=None,kfactor=2,checkinterval=10,threshold=40,maxiteration
   iterationcount = 0
   oldclassification = None
   sameclassificationcount = 0
+  KLFO = open('kldiv.tsv', 'w')
   while iterationcount < maxiterations:
   
     # update Ht
@@ -355,34 +356,72 @@ def runnmf(inputmatrix=None,kfactor=2,checkinterval=10,threshold=40,maxiteration
    
     if iterationcount > checkinterval and divmod(iterationcount, checkinterval)[1] == 0:
       # check KL divergence
-      kldivergence = None
-      #kldivergence = True
+      #kldivergence = None
+      kldivergence = True
       if kldivergence:
+        # as a test, calculate KL divergence with rank 0 only
+        cp.cuda.Stream.null.synchronize()
+        if rank == 0 and seed == 1:
+          WHkl = cp.dot(W,H)
+          cp.cuda.Stream.null.synchronize()
+          WH_datakl = WHkl.ravel()
+          cp.cuda.Stream.null.synchronize()
+          #X_datakl = V.ravel()
+          X_datakl = WHkl.ravel()
+          cp.cuda.Stream.null.synchronize()
+          indices = X_datakl > EPSILON
+          cp.cuda.Stream.null.synchronize()
+          WH_datakl = WH_datakl[indices]
+          cp.cuda.Stream.null.synchronize()
+          X_datakl = X_datakl[indices]
+          cp.cuda.Stream.null.synchronize()
+          WH_datakl[WH_datakl == 0] = EPSILON
+          cp.cuda.Stream.null.synchronize()
+          sum_WH = cp.dot(cp.sum(W, axis=0), cp.sum(H, axis=1))
+          cp.cuda.Stream.null.synchronize()
+          print(f'{rank}: cp.sum(W, axis=0).shape ({cp.sum(W, axis=0).shape}), cp.sum(H, axis=1).shape ({cp.sum(H, axis=1).shape})\n')
+          print(f'{rank}: dot(cp.sum(W, axis=0), cp.sum(H, axis=1), sum_WH: ({sum_WH})\n')
+          div = X_datakl / WH_datakl
+          cp.cuda.Stream.null.synchronize()
+          print(f'{rank}: X_datakl / WH_datakl, div: ({div})\n')
+          res = cp.dot(X_datakl, cp.log(div))
+          cp.cuda.Stream.null.synchronize()
+          print(f'{rank}: cp.log(div) ({cp.log(div)})\n')
+          print(f'{rank}: dot(X_data, cp.log(div)), res: ({res})\n')
+          print(f'{rank}: adding sum_WH ({sum_WH}) - X_datakl.sum() ({X_datakl.sum()}) to starting res,  ending res: ({res})\n')
+          res += sum_WH - X_datakl.sum()
+          cp.cuda.Stream.null.synchronize()
+          print(f'{rank}: KL divergence, serial calculation, res: ({res})\n')
+          error = cp.sqrt(2 * res)
+          cp.cuda.Stream.null.synchronize()
+          print(f'{rank}: KL divergence, serial calculation, error: ({error})\n')
+          KLFO.write(f'{iterationcount}\t{error}\n')
+
         #if rank == 0:
         #  print(f'Wnew: ({Wnew})\n')
         #  print(f'Hnew: ({Hnew})\n')
         #print(f'{rank}: Wnew.shape {Wnew.shape}, Hnew.shape {Hnew.shape}\n')
         WHkl = cp.dot(Wnew,Hnew)
-        #print(f'{rank}: WHkl.shape ({WHkl.shape})\n')
+        print(f'{rank}: WHkl.shape ({WHkl.shape})\n')
         WH_datakl = WHkl.ravel()
-        #print(f'{rank}: V[mystartrow:myendrow + 1,mystartcol:myendcol + 1].shape {V[:,mystartcol:myendcol + 1].shape}\n')
+        print(f'{rank}: V[mystartrow:myendrow + 1,mystartcol:myendcol + 1].shape {V[:,mystartcol:myendcol + 1].shape}\n')
         #X_datakl = V[:,mystartcol:myendcol + 1].ravel()
         X_datakl = V[mystartrow:myendrow + 1,mystartcol:myendcol + 1].ravel()
         if rank == 0:
-          #print(f'{rank}: WH_datakl: ({WH_datakl})\n')
-          #print(f'{rank}: X_datakl: ({X_datakl})\n')
+          print(f'{rank}: WH_datakl: ({WH_datakl})\n')
+          print(f'{rank}: X_datakl: ({X_datakl})\n')
           pass
         indices = X_datakl > EPSILON
         antiindices = X_datakl <= EPSILON
         if rank == 0:
-          #print(f'{rank}: antiindices: ({antiindices})\n')
+          print(f'{rank}: antiindices: ({antiindices})\n')
           pass
         WH_datakl = WH_datakl[indices]
         X_datakl = X_datakl[indices]
         WH_datakl[WH_datakl == 0] = EPSILON
         if rank == 0:
-          #print(f'{rank}: after indices and EPSILON, WH_datakl: ({WH_datakl})\n')
-          #print(f'{rank}: after indices and EPSILON, X_datakl: ({X_datakl})\n')
+          print(f'{rank}: after indices and EPSILON, WH_datakl: ({WH_datakl})\n')
+          print(f'{rank}: after indices and EPSILON, X_datakl: ({X_datakl})\n')
           pass
         #if rank == 0:
         #  print(f'{rank}: WH_data: ({WH_data})\n')
@@ -391,16 +430,16 @@ def runnmf(inputmatrix=None,kfactor=2,checkinterval=10,threshold=40,maxiteration
         sum_WH = cp.dot(cp.sum(Wnew, axis=0), cp.sum(Hnew, axis=1))
         div = X_datakl / WH_datakl
         if rank == 0:
-          #print(f'{rank}: X_datakl / WH_datakl, div: ({div})\n')
+          print(f'{rank}: X_datakl / WH_datakl, div: ({div})\n')
           pass
         res = cp.dot(X_datakl, cp.log(div))
         if rank == 0:
-          #print(f'{rank}: cp.log(div) ({cp.log(div)})\n')
-          #print(f'{rank}: dot(X_data, cp.log(div)), res: ({res})\n')
+          print(f'{rank}: cp.log(div) ({cp.log(div)})\n')
+          print(f'{rank}: dot(X_data, cp.log(div)), res: ({res})\n')
           pass
         res += sum_WH - X_datakl.sum()
         if rank == 0:
-          #print(f'{rank}: adding sum_WH ({sum_WH}) - X_datakl.sum() ({X_datakl.sum()}) to starting res,  ending res: ({res})\n')
+          print(f'{rank}: adding sum_WH ({sum_WH}) - X_datakl.sum() ({X_datakl.sum()}) to starting res,  ending res: ({res})\n')
           pass
         #if rank == 0:
         #  print(f'{rank}: res: ({res})\n')
@@ -414,12 +453,12 @@ def runnmf(inputmatrix=None,kfactor=2,checkinterval=10,threshold=40,maxiteration
         #totalres = cp.empty_like(res)
         totalres = cp.zeros_like(res)
         if rank == 0:
-          #print(f'{rank}: empty totalres: ({totalres})\n')
+          print(f'{rank}: empty totalres: ({totalres})\n')
           pass
         #comm.Reduce(res, totalres, op=MPI.SUM, root=0)
         comm.Allreduce(res, totalres)
         if rank == 0:
-          #print(f'{rank}: afer Reduce, totalres: ({totalres})\n')
+          print(f'{rank}: afer Reduce, totalres: ({totalres})\n')
           pass
 
       
@@ -488,6 +527,7 @@ def runnmf(inputmatrix=None,kfactor=2,checkinterval=10,threshold=40,maxiteration
         oldclassification = newclassification
         sameclassificationcount = 0
     iterationcount = iterationcount + 1
+  KLFO.close()
   if debug:
     print(f'{rank}: iterationcount ({iterationcount})\n')
   debug = olddebug

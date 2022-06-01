@@ -150,8 +150,10 @@ try:
         DEBUGVAL = False
       
       start = time.process_time() 
-      WH = runnmf(inputmatrix=V, kfactor=k, checkinterval=int(args.interval), threshold=int(args.consecutive), maxiterations=int(args.maxiterations), seed=seed, debug=DEBUGVAL, comm=comm, parastrategy=args.parastrategy)
+      #WH = runnmf(inputmatrix=V, kfactor=k, checkinterval=int(args.interval), threshold=int(args.consecutive), maxiterations=int(args.maxiterations), seed=seed, debug=DEBUGVAL, comm=comm, parastrategy=args.parastrategy)
       #WH = runnmf(inputmatrix=V, kfactor=k, checkinterval=int(args.interval), threshold=int(args.consecutive), maxiterations=int(args.maxiterations), seed=seed, debug=DEBUGVAL, comm=comm, parastrategy=args.parastrategy, vref='/gpfs/wolf/trn008/scratch/kenneth/nmf-gpu/bin/bionmf.input.txt', href='/gpfs/wolf/trn008/scratch/kenneth/nmf-gpu/bin/bionmf.input.txt_H.txt', wref='/gpfs/wolf/trn008/scratch/kenneth/nmf-gpu/bin/bionmf.input.txt_W.txt')
+      WH = runnmf(inputmatrix=V, kfactor=k, checkinterval=int(args.interval), threshold=int(args.consecutive), maxiterations=int(args.maxiterations), seed=seed, debug=DEBUGVAL, comm=comm, parastrategy=args.parastrategy)
+      #WH = runnmf(inputmatrix=V, kfactor=k, checkinterval=int(args.interval), threshold=int(args.consecutive), maxiterations=int(args.maxiterations), seed=seed, debug=True, comm=comm, parastrategy=args.parastrategy)
       olddebug = debug
       debug = True
       if debug:
