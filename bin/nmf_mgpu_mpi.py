@@ -23,9 +23,9 @@ import cupy as cp
 import os.path
 from mpi4py import MPI
 import numpy
+import types
 
-
-def runnmf(inputmatrix=None,kfactor=2,checkinterval=10,threshold=40,maxiterations=2000,seed=1,debug=False, comm=None, parastrategy='serial'):
+def runnmf(inputmatrix=None,kfactor=2,checkinterval=10,threshold=40,maxiterations=2000,seed=1,debug=False, comm=None, parastrategy='serial', klerrordiffmax=None):
   EPSILON = cp.finfo(cp.float32).eps
   olddebug = debug
   #debug = True
@@ -167,6 +167,8 @@ def runnmf(inputmatrix=None,kfactor=2,checkinterval=10,threshold=40,maxiteration
   iterationcount = 0
   oldclassification = None
   sameclassificationcount = 0
+  oldserialerror = None
+  oldmpierror = None
   KLFO = open('kldiv.tsv', 'w')
   while iterationcount < maxiterations:
   
@@ -358,7 +360,8 @@ def runnmf(inputmatrix=None,kfactor=2,checkinterval=10,threshold=40,maxiteration
       # check KL divergence
       #kldivergence = None
       kldivergence = True
-      if kldivergence:
+      if not klerrordiffmax == None:
+      #if kldivergence:
         # as a test, calculate KL divergence with rank 0 only
         cp.cuda.Stream.null.synchronize()
         if rank == 0 and seed == 1:
@@ -366,8 +369,8 @@ def runnmf(inputmatrix=None,kfactor=2,checkinterval=10,threshold=40,maxiteration
           cp.cuda.Stream.null.synchronize()
           WH_datakl = WHkl.ravel()
           cp.cuda.Stream.null.synchronize()
-          #X_datakl = V.ravel()
-          X_datakl = WHkl.ravel()
+          X_datakl = V.ravel()
+          #X_datakl = WHkl.ravel()
           cp.cuda.Stream.null.synchronize()
           indices = X_datakl > EPSILON
           cp.cuda.Stream.null.synchronize()
@@ -393,6 +396,12 @@ def runnmf(inputmatrix=None,kfactor=2,checkinterval=10,threshold=40,maxiteration
           cp.cuda.Stream.null.synchronize()
           print(f'{rank}: KL divergence, serial calculation, res: ({res})\n')
           error = cp.sqrt(2 * res)
+          print(f'{rank}: oldserialerror: {oldserialerror}\n')
+          if type(oldserialerror) == types.NoneType:
+            oldserialerror = error
+          else:
+            print(f'{rank}: serial error difference: {oldserialerror - error}\n')
+            oldserialerror = error
           cp.cuda.Stream.null.synchronize()
           print(f'{rank}: KL divergence, serial calculation, error: ({error})\n')
           KLFO.write(f'{iterationcount}\t{error}\n')
@@ -401,12 +410,12 @@ def runnmf(inputmatrix=None,kfactor=2,checkinterval=10,threshold=40,maxiteration
         #  print(f'Wnew: ({Wnew})\n')
         #  print(f'Hnew: ({Hnew})\n')
         #print(f'{rank}: Wnew.shape {Wnew.shape}, Hnew.shape {Hnew.shape}\n')
-        WHkl = cp.dot(Wnew,Hnew)
+        #WHkl = cp.dot(Wnew,Hnew)
+        WHkl = cp.dot(W,Hnew)
         print(f'{rank}: WHkl.shape ({WHkl.shape})\n')
         WH_datakl = WHkl.ravel()
-        print(f'{rank}: V[mystartrow:myendrow + 1,mystartcol:myendcol + 1].shape {V[:,mystartcol:myendcol + 1].shape}\n')
-        #X_datakl = V[:,mystartcol:myendcol + 1].ravel()
-        X_datakl = V[mystartrow:myendrow + 1,mystartcol:myendcol + 1].ravel()
+        print(f'{rank}: V[:,mystartcol:myendcol + 1].shape {V[:,mystartcol:myendcol + 1].shape}\n')
+        X_datakl = V[:,mystartcol:myendcol + 1].ravel()
         if rank == 0:
           print(f'{rank}: WH_datakl: ({WH_datakl})\n')
           print(f'{rank}: X_datakl: ({X_datakl})\n')
@@ -427,7 +436,8 @@ def runnmf(inputmatrix=None,kfactor=2,checkinterval=10,threshold=40,maxiteration
         #  print(f'{rank}: WH_data: ({WH_data})\n')
         #  print(f'{rank}: X_data: ({X_data})\n')
         #sum_WH = cp.dot(cp.sum(W, axis=0), cp.sum(H, axis=1))
-        sum_WH = cp.dot(cp.sum(Wnew, axis=0), cp.sum(Hnew, axis=1))
+        #sum_WH = cp.dot(cp.sum(Wnew, axis=0), cp.sum(Hnew, axis=1))
+        sum_WH = cp.dot(cp.sum(W, axis=0), cp.sum(Hnew, axis=1))
         div = X_datakl / WH_datakl
         if rank == 0:
           print(f'{rank}: X_datakl / WH_datakl, div: ({div})\n')
@@ -457,75 +467,88 @@ def runnmf(inputmatrix=None,kfactor=2,checkinterval=10,threshold=40,maxiteration
           pass
         #comm.Reduce(res, totalres, op=MPI.SUM, root=0)
         comm.Allreduce(res, totalres)
+        error = numpy.sqrt(2 * totalres)
+        if type(oldmpierror) == types.NoneType:
+          errordiff = None
+          oldmpierror = error
+        else:
+          errordiff = oldmpierror - error
+          oldmpierror = error
         if rank == 0:
           print(f'{rank}: afer Reduce, totalres: ({totalres})\n')
-          pass
+          print(f'{rank}: MPI KL divergence, error: ({error})\n')
+          print(f'{rank}: mpi error difference: {errordiff}\n')
+        if (not type(errordiff) == types.NoneType) and errordiff < klerrordiffmax:
+          print(f'{rank}: interationcount ({iterationcount}): errordiff ({errordiff}) < klerrordiffmax ({klerrordiffmax}), return(W,H)\n')
+          return(W,H)
+        else:
+          print(f'{rank}: interationcount ({iterationcount}): errordiff ({errordiff}) not less than klerrordiffmax ({klerrordiffmax})\n')
 
-      
-      # check classification
-      # H is kxM matrix.  classification is 1xM array, with each element
-      # the row index of the max of the elements in that column.
-      # from the C code comments:
-      #/*
-      # * Computes the maximum value of each row in d_A[] and stores its column index in d_Idx[].
-      # * That is, returns d_Idx[i], such that:
-      # *      d_A[i][ d_Idx[i] ] == max( d_A[i][...] ).
-      # *
-      # * size_of( d_Idx ) >= height
-      # * width <= pitch <= maxThreadsPerBlock
-      # * In addition, "pitch" must be a multiple of 'memory_alignment'.
-      # *
-      # * Returns EXIT_SUCCESS or EXIT_FAILURE.
-      # */
-
-      if debug:
-        if rank == 0:
-          print(f'{rank}: checking classification...\n')
-      #newclassification = cp.ndarray((M), dtype=cp.int16)
-      #for thiscolumn in range(M):
-      #  for thisrow in range(kfactor):
-      #    if thisrow == 0:
-      #      maxrow = 0
-      #    else:
-      #      # tie goes to incumbent?
-      #      #if Ht[thisrow,thiscolumn] > Ht[thisrow,maxrow]:
-      #      if H[thisrow,thiscolumn] > H[maxrow,thiscolumn]:
-      #        maxrow = thisrow
-      #  newclassification[thiscolumn] = maxrow
-      newclassification = cp.argmax(H, axis=0)
-      if debug:
-        if rank == 0:
-          print(f'{rank}: type(oldclassification): ({type(oldclassification)})\n')
-          print(f'{rank}: newclassification: ({newclassification})\n')
-      if type(oldclassification) == type(newclassification) and cp.array_equal(oldclassification, newclassification) == True:
+      else:
+        # check classification
+        # H is kxM matrix.  classification is 1xM array, with each element
+        # the row index of the max of the elements in that column.
+        # from the C code comments:
+        #/*
+        # * Computes the maximum value of each row in d_A[] and stores its column index in d_Idx[].
+        # * That is, returns d_Idx[i], such that:
+        # *      d_A[i][ d_Idx[i] ] == max( d_A[i][...] ).
+        # *
+        # * size_of( d_Idx ) >= height
+        # * width <= pitch <= maxThreadsPerBlock
+        # * In addition, "pitch" must be a multiple of 'memory_alignment'.
+        # *
+        # * Returns EXIT_SUCCESS or EXIT_FAILURE.
+        # */
+  
         if debug:
           if rank == 0:
-            print(f'{rank}: 1. equal?: ({cp.array_equal(oldclassification, newclassification)})\n')
-        sameclassificationcount = sameclassificationcount + 1
-        if sameclassificationcount >= threshold:
-          debug = True
+            print(f'{rank}: checking classification...\n')
+        #newclassification = cp.ndarray((M), dtype=cp.int16)
+        #for thiscolumn in range(M):
+        #  for thisrow in range(kfactor):
+        #    if thisrow == 0:
+        #      maxrow = 0
+        #    else:
+        #      # tie goes to incumbent?
+        #      #if Ht[thisrow,thiscolumn] > Ht[thisrow,maxrow]:
+        #      if H[thisrow,thiscolumn] > H[maxrow,thiscolumn]:
+        #        maxrow = thisrow
+        #  newclassification[thiscolumn] = maxrow
+        newclassification = cp.argmax(H, axis=0)
+        if debug:
+          if rank == 0:
+            print(f'{rank}: type(oldclassification): ({type(oldclassification)})\n')
+            print(f'{rank}: newclassification: ({newclassification})\n')
+        if type(oldclassification) == type(newclassification) and cp.array_equal(oldclassification, newclassification) == True:
           if debug:
             if rank == 0:
-              print(f'{rank}: classification unchanged in {sameclassificationcount} trials,breaking.\n')
-              print(f'{rank}: H: ({H})\n')
-          #cp.savetxt(os.path.basename(args.inputmatrix) + '_H.txt', H)
-          #break
-          debug = olddebug
+              print(f'{rank}: 1. equal?: ({cp.array_equal(oldclassification, newclassification)})\n')
+          sameclassificationcount = sameclassificationcount + 1
+          if sameclassificationcount >= threshold:
+            debug = True
+            if debug:
+              if rank == 0:
+                print(f'{rank}: classification unchanged in {sameclassificationcount} trials,breaking.\n')
+                print(f'{rank}: H: ({H})\n')
+            #cp.savetxt(os.path.basename(args.inputmatrix) + '_H.txt', H)
+            #break
+            debug = olddebug
+            if debug:
+              print(f'{rank}: V: ({V})\n')
+              print(f'{rank}: WH: ({cp.matmul(W,H)})\n')
+            #print(f'{rank}: WH: ({cp.matmul(W,H)})\n')
+            #print(f'{rank}: WH: ({cp.matmul(W,Hnewfull)})\n')
+            #return((W,Hnewfull))
+            return(W,H)
+        else:
           if debug:
-            print(f'{rank}: V: ({V})\n')
-            print(f'{rank}: WH: ({cp.matmul(W,H)})\n')
-          #print(f'{rank}: WH: ({cp.matmul(W,H)})\n')
-          #print(f'{rank}: WH: ({cp.matmul(W,Hnewfull)})\n')
-          #return((W,Hnewfull))
-          return(W,H)
-      else:
-        if debug:
-          if type(oldclassification) == type(newclassification):
-            print(f'{rank}: 2. equal?: ({cp.array_equal(oldclassification, newclassification)})\n')
-          else:
-            print(f'{rank}: 2. type(oldclassification) != type(newclassification)\n')
-        oldclassification = newclassification
-        sameclassificationcount = 0
+            if type(oldclassification) == type(newclassification):
+              print(f'{rank}: 2. equal?: ({cp.array_equal(oldclassification, newclassification)})\n')
+            else:
+              print(f'{rank}: 2. type(oldclassification) != type(newclassification)\n')
+          oldclassification = newclassification
+          sameclassificationcount = 0
     iterationcount = iterationcount + 1
   KLFO.close()
   if debug:

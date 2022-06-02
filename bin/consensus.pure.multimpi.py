@@ -82,25 +82,26 @@ from nmf_mgpu_mpi import runnmf
 ###########
 
 parser = argparse.ArgumentParser()
-parser.add_argument('-b', '--vref', dest='vref', action='store')
-parser.add_argument('-f', '--href', dest='href', action='store')
-parser.add_argument('-w', '--wref', dest='wref', action='store')
-parser.add_argument('-s', '--parastrategy', dest='parastrategy', action='store', choices=['kfactor', 'inputmatrix', 'serial'])
-parser.add_argument('-v', '--verbose', dest='verbose', action='store_true')
-parser.add_argument('-p', '--gpuprogrampath', dest='gpuprogrampath', action='store')
-parser.add_argument('-d', '--jobdir', dest='jobdir', action='store')
-parser.add_argument('-i', '--inputfile', dest='inputfile', action='store')
-parser.add_argument('-m', '--mink', dest='mink', action='store')
-parser.add_argument('-e', '--maxk', dest='maxk', action='store')
 parser.add_argument('-a', '--startseed', dest='startseed', action='store')
-parser.add_argument('-r', '--seeds', dest='seeds', action='store')
+parser.add_argument('-b', '--vref', dest='vref', action='store')
+parser.add_argument('-c', '--nocleanup', dest='nocleanup', action='store_true')
+parser.add_argument('-d', '--jobdir', dest='jobdir', action='store')
+parser.add_argument('-e', '--maxk', dest='maxk', action='store')
+parser.add_argument('-f', '--href', dest='href', action='store')
+parser.add_argument('-p', '--gpuprogrampath', dest='gpuprogrampath', action='store')
+parser.add_argument('-i', '--inputfile', dest='inputfile', action='store')
 parser.add_argument('-j', '--interval', dest='interval', action='store')
-parser.add_argument('-t', '--consecutive', dest='consecutive', action='store')
-parser.add_argument('-x', '--maxiterations', dest='maxiterations', action='store')
+parser.add_argument('-k', '--keepintermediatefiles', dest='keepintermediatefiles', action='store_true')
+parser.add_argument('-l', '--klerrordiffmax', dest='klerrordiffmax', action='store')
+parser.add_argument('-m', '--mink', dest='mink', action='store')
 parser.add_argument('-n', '--numtasks', dest='mpitasks', action='store')
 parser.add_argument('-o', '--outputfileprefix', dest='outputfileprefix', action='store')
-parser.add_argument('-k', '--keepintermediatefiles', dest='keepintermediatefiles', action='store_true')
-parser.add_argument('-c', '--nocleanup', dest='nocleanup', action='store_true')
+parser.add_argument('-r', '--seeds', dest='seeds', action='store')
+parser.add_argument('-s', '--parastrategy', dest='parastrategy', action='store', choices=['kfactor', 'inputmatrix', 'serial'])
+parser.add_argument('-t', '--consecutive', dest='consecutive', action='store')
+parser.add_argument('-v', '--verbose', dest='verbose', action='store_true')
+parser.add_argument('-w', '--wref', dest='wref', action='store')
+parser.add_argument('-x', '--maxiterations', dest='maxiterations', action='store')
 args = parser.parse_args()
 GPUPROGRAMPATH = args.gpuprogrampath
 JOBDIR = args.jobdir
@@ -117,6 +118,10 @@ gct_data = NP_GCT(args.inputfile)
 vref = args.vref
 href = args.href
 wref = args.wref
+if args.klerrordiffmax:
+  klerrordiffmax = float(args.klerrordiffmax)
+else:
+  klerrordiffmax = None
 
 V = gct_data.data
 
@@ -152,7 +157,7 @@ try:
       start = time.process_time() 
       #WH = runnmf(inputmatrix=V, kfactor=k, checkinterval=int(args.interval), threshold=int(args.consecutive), maxiterations=int(args.maxiterations), seed=seed, debug=DEBUGVAL, comm=comm, parastrategy=args.parastrategy)
       #WH = runnmf(inputmatrix=V, kfactor=k, checkinterval=int(args.interval), threshold=int(args.consecutive), maxiterations=int(args.maxiterations), seed=seed, debug=DEBUGVAL, comm=comm, parastrategy=args.parastrategy, vref='/gpfs/wolf/trn008/scratch/kenneth/nmf-gpu/bin/bionmf.input.txt', href='/gpfs/wolf/trn008/scratch/kenneth/nmf-gpu/bin/bionmf.input.txt_H.txt', wref='/gpfs/wolf/trn008/scratch/kenneth/nmf-gpu/bin/bionmf.input.txt_W.txt')
-      WH = runnmf(inputmatrix=V, kfactor=k, checkinterval=int(args.interval), threshold=int(args.consecutive), maxiterations=int(args.maxiterations), seed=seed, debug=DEBUGVAL, comm=comm, parastrategy=args.parastrategy)
+      WH = runnmf(inputmatrix=V, kfactor=k, checkinterval=int(args.interval), threshold=int(args.consecutive), maxiterations=int(args.maxiterations), seed=seed, debug=DEBUGVAL, comm=comm, parastrategy=args.parastrategy, klerrordiffmax=klerrordiffmax)
       #WH = runnmf(inputmatrix=V, kfactor=k, checkinterval=int(args.interval), threshold=int(args.consecutive), maxiterations=int(args.maxiterations), seed=seed, debug=True, comm=comm, parastrategy=args.parastrategy)
       olddebug = debug
       debug = True
