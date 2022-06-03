@@ -28,33 +28,12 @@ import types
 def runnmf(inputmatrix=None,kfactor=2,checkinterval=10,threshold=40,maxiterations=2000,seed=1,debug=False, comm=None, parastrategy='serial', klerrordiffmax=None):
   EPSILON = cp.finfo(cp.float32).eps
   olddebug = debug
-  #debug = True
   # read input file, create array on device
   #V = cp.loadtxt(fname=args.inputmatrix)
   # for really big inputs, should probably feed in N and M as args,
   # then each task read in only its columns and rows from the input
   # matrix file.
 
-  #if debug:
-  #  print(f'{rank}: start of nmf_mgpu.py\n')
-    
-  #try:
-  #  comm = MPI.COMM_WORLD
-  #  rank = comm.Get_rank()
-  #  numtasks = comm.Get_size()
-  #  print(f'rank: {rank}, numtasks: {numtasks}\n')
-  #except:
-  #  print(f'MPI failed!\n')
-  #  info_tuple = sys.exc_info()
-  #  print("(%s) (%s) (%s)" % info_tuple)
-  #  info_list = ["%s" % info_tuple[0], "%s" % info_tuple[1], '\n']
-  #  traceback.print_tb(info_tuple[2])
-  #  tb_list = traceback.format_tb(info_tuple[2])
-  #  info_list = info_list + tb_list
-  #  tb_text = string.join(info_list)
-  #  print(tb_text)
-  #  rank = 0
-  #  numtasks = 1
   if comm == None or parastrategy in ('serial', 'kfactor'):
     rank = 0
     numtasks = 1
@@ -67,8 +46,6 @@ def runnmf(inputmatrix=None,kfactor=2,checkinterval=10,threshold=40,maxiteration
     print(f'{rank}: V: ({V})\n')
   
   # seed the PRNG
-  #cp.random.seed(int(args.seed))
-  #cp.random.seed(seed)
   cp.random.seed(seed)
   
   N = V.shape[0]
@@ -92,7 +69,6 @@ def runnmf(inputmatrix=None,kfactor=2,checkinterval=10,threshold=40,maxiteration
       myendcol = mystartcol + (colspertask + 1) - colpad - 1
     else:
       myendcol = mystartcol + (colspertask + 1) - 1
-  #colpadded = M + colpad
   Hsendcountlist = []
   for tn in range(numtasks):
     if colremainder == 0:
@@ -116,7 +92,6 @@ def runnmf(inputmatrix=None,kfactor=2,checkinterval=10,threshold=40,maxiteration
       myendrow = mystartrow + (rowspertask + 1) - rowpad - 1
     else:
       myendrow = mystartrow + (rowspertask + 1) - 1
-  #rowpadded = N + colpad
   Wsendcountlist = []
   for tn in range(numtasks):
     if rowremainder == 0:
@@ -136,8 +111,6 @@ def runnmf(inputmatrix=None,kfactor=2,checkinterval=10,threshold=40,maxiteration
   # do I need to add the padded rows and columns to the last task?
   # or are the matrix operations okay?
 
-  #kfactor = int(args.kfactor)
-  #kfactor = kfactor
   # create H and W random on device
   # H = M (inputarray.shape[1]) x k (stored transposed), W = N (inputarra.shape[0]x k
   # in the bionmf-gpu code, 
@@ -157,19 +130,15 @@ def runnmf(inputmatrix=None,kfactor=2,checkinterval=10,threshold=40,maxiteration
     print(f'{rank}: initial Ht: ({Ht})\n')
     print(f'{rank}: initial W: ({W})\n')
     print(f'{rank}: initial Wt: ({Wt})\n')
-  #print(f'{rank}: initial H: ({H})\n')
-  #print(f'{rank}: initial Ht: ({Ht})\n')
-  #print(f'{rank}: initial W: ({W})\n')
-  #print(f'{rank}: initial Wt: ({Wt})\n')
-  #print(f'{rank}: V: ({V})\n')
-  #print(f'{rank}: WH: ({cp.matmul(W,H)})\n')
+    print(f'{rank}: V: ({V})\n')
+    print(f'{rank}: WH: ({cp.matmul(W,H)})\n')
   
   iterationcount = 0
   oldclassification = None
   sameclassificationcount = 0
   oldserialerror = None
   oldmpierror = None
-  KLFO = open('kldiv.tsv', 'w')
+  #KLFO = open('kldiv.tsv', 'w')
   while iterationcount < maxiterations:
   
     # update Ht
@@ -182,8 +151,6 @@ def runnmf(inputmatrix=None,kfactor=2,checkinterval=10,threshold=40,maxiteration
     # WH (N x M) = (N x k) * (k x M)
     if debug:
       print(f'{rank}:  W.shape: {W.shape}, H.shape: {H.shape}\n')
-    #WH = cp.matmul(W, H)
-    if debug:
       print(f'{rank}: W.shape {W.shape} H[:,mystartcol:myendcol + 1].shape {H[:,mystartcol:myendcol + 1].shape}, mystartcol {mystartcol}, myendcol: {myendcol}\n')
       print(f'{rank}: H: {H}\n')
       print(f'{rank}: H[:,mystartcol:myendcol + 1]: {H[:,mystartcol:myendcol + 1]}\n')
@@ -191,22 +158,17 @@ def runnmf(inputmatrix=None,kfactor=2,checkinterval=10,threshold=40,maxiteration
     if debug:
       print(f'{rank}: after matmul, WH.shape: {WHm.shape}\n')
       print(f'{rank}: WHm: ({WHm})\n')
-    #print(f'{rank}: update H, matmul(W, H[:,mystartcol:myendcol + 1]), WHm: ({WHm})\n')
+      print(f'{rank}: update H, matmul(W, H[:,mystartcol:myendcol + 1]), WHm: ({WHm})\n')
   
     # AUX = V (input matrix) ./ (W*H)
     # AUX (N x M)
     #AUX = cp.divide(V, WH)
-    # overwrite WH, I wonder if that breaks anything...
     WH = cp.divide(V[:,mystartcol:myendcol + 1], WHm)
     if debug:
       print(f'{rank}: after divide, WH.shape: {WH.shape}\n')
-    #print(f'{rank}: update H, divide(V[:,mystartcol:myendcol + 1], WHm), WH: ({WH})\n')
-    #print(f'AUX: ({AUX})\n')
-    if debug:
-      print(f'{rank}: WH: ({WH})\n')
+      print(f'{rank}: update H, divide(V[:,mystartcol:myendcol + 1], WHm), WH: ({WH})\n')
     
     # WTAux = Wt * AUX
-    #WTAUX = cp.matmul(Wt, WH, dtype=cp.float64)
     if debug:
       print(f'{rank}: Wt: ({Wt})\n')
     WTAUX = cp.matmul(Wt, WH)
@@ -214,7 +176,7 @@ def runnmf(inputmatrix=None,kfactor=2,checkinterval=10,threshold=40,maxiteration
       print(f'{rank}: Wt.shape {Wt.shape} WH.shape {WH.shape} WTAUX.shape {WTAUX.shape}\n')
       print(f'{rank}:  WTAUX.shape: {WTAUX.shape}\n')
       print(f'{rank}: WTAUX: ({WTAUX})\n')
-    #print(f'{rank}: update H, matmul(Wt, WH), WTAUX: ({WTAUX})\n')
+      print(f'{rank}: update H, matmul(Wt, WH), WTAUX: ({WTAUX})\n')
     
     # how do we get reduced an accumulated ACCWT below?
     # sum each column down to a single value...
@@ -233,8 +195,8 @@ def runnmf(inputmatrix=None,kfactor=2,checkinterval=10,threshold=40,maxiteration
     # H = H .* WTAUXDIV
     Hnew = cp.multiply(H[:,mystartcol:myendcol + 1], WTAUXDIV)
     if debug:
-        print(f'{rank}: Hnew: ({Hnew}, Hnew.shape {Hnew.shape}, H[:,mystartcol:myendcol + 1].shape {H[:,mystartcol:myendcol + 1].shape}, WTAUXDIV.shape {WTAUXDIV.shape})\n')
-    print(f'{rank}: Hnew: ({Hnew})\n')
+      print(f'{rank}: Hnew: ({Hnew}, Hnew.shape {Hnew.shape}, H[:,mystartcol:myendcol + 1].shape {H[:,mystartcol:myendcol + 1].shape}, WTAUXDIV.shape {WTAUXDIV.shape})\n')
+      print(f'{rank}: Hnew: ({Hnew})\n')
     # sync H to all devices
     if parastrategy == 'inputmatrix':
       # Daniel's code suggests flattening before the allgather and
@@ -242,8 +204,6 @@ def runnmf(inputmatrix=None,kfactor=2,checkinterval=10,threshold=40,maxiteration
       # array and sendcount
       # looks like the old code, without ravel and sendcount was
       # trying to send into the first row until it overran it...
-      #H = Hnew
-      #hsendcount = H.size
       Hshape = H.shape
       # ravel of subset of columns will put columns of the next row
       # next to each other, which will change order elements when
@@ -255,7 +215,6 @@ def runnmf(inputmatrix=None,kfactor=2,checkinterval=10,threshold=40,maxiteration
         print(f'{rank}: Hnewflat {Hnewflat}\n')
         print(f'{rank}: H.shape {H.shape}\n')
         print(f'{rank}: Hrecv.shape {Hrecv.shape}\n')
-      #comm.Allgatherv(sendbuf=Hnewflat,recvbuf=(Hrecv, Hnew.size))
       cp.cuda.Stream.null.synchronize()
       comm.Allgatherv(sendbuf=Hnewflat,recvbuf=(Hrecv,Hsendcountlist))
       if debug:
@@ -304,12 +263,10 @@ def runnmf(inputmatrix=None,kfactor=2,checkinterval=10,threshold=40,maxiteration
       print(f'{rank}: Wnew: ({Wnew})\n')
       print(f'{rank}: Hnew: ({Hnew}), Hnew.shape: {Hnew.shape}\n')
       print(f'{rank}: Wnew: ({Wnew}), Wnew.shape: {Wnew.shape}\n')
-    print(f'{rank}: Wnew: ({Wnew})\n')
+      print(f'{rank}: Wnew: ({Wnew})\n')
     # sync W to all devices
     if parastrategy == 'inputmatrix':
-      #W = Wnew
       Wshape = W.shape
-      #Wnewflat = Wnew.ravel()
       Wnewflat = Wnew.ravel(order='C')
       Wrecv = cp.empty(W.size)
       if debug:
@@ -319,10 +276,7 @@ def runnmf(inputmatrix=None,kfactor=2,checkinterval=10,threshold=40,maxiteration
         print(f'{rank}: Wrecv.shape {Wrecv.shape}\n')
       cp.cuda.Stream.null.synchronize()
       comm.Allgatherv(sendbuf=Wnewflat,recvbuf=(Wrecv, Wsendcountlist))
-      #W = Wrecv.reshape(Wshape[0], -1)
       Wnewfull = Wrecv.reshape(Wshape, order='C')
-      #if rank == 0:
-      #  print(f'{rank}, {iterationcount} intermediate matmul(Wnewfull, Hnewfull): ({cp.matmul(Wnewfull, Hnewfull)})\n')
       W = Wnewfull
     else:
       cp.cuda.Stream.null.synchronize()
@@ -338,12 +292,10 @@ def runnmf(inputmatrix=None,kfactor=2,checkinterval=10,threshold=40,maxiteration
       print(f'{rank}: after update W\n')
       print(f'{rank}: H: ({H}), H.shape: {H.shape}\n')
       print(f'{rank}: W: ({W}), W.shape: {W.shape}\n')
-    #print(f'{rank}, {iterationcount}: after sync, V: ({V})\n')
-    #print(f'{rank}, {iterationcount}: after sync, WH: ({cp.matmul(W,H)})\n')
-    print(f'{rank}, {iterationcount}: after sync, V: ({V})\n')
-    print(f'{rank}, {iterationcount}: after sync, W: ({W})\n')
-    print(f'{rank}, {iterationcount}: after sync, H: ({H})\n')
-    print(f'{rank}, {iterationcount}: after sync, WH: ({cp.matmul(W,H)})\n')
+      print(f'{rank}, {iterationcount}: after sync, V: ({V})\n')
+      print(f'{rank}, {iterationcount}: after sync, W: ({W})\n')
+      print(f'{rank}, {iterationcount}: after sync, H: ({H})\n')
+      print(f'{rank}, {iterationcount}: after sync, WH: ({cp.matmul(W,H)})\n')
     
 
     # check classification for Ht
@@ -358,73 +310,46 @@ def runnmf(inputmatrix=None,kfactor=2,checkinterval=10,threshold=40,maxiteration
    
     if iterationcount > checkinterval and divmod(iterationcount, checkinterval)[1] == 0:
       # check KL divergence
-      #kldivergence = None
-      kldivergence = True
       if not klerrordiffmax == None:
-        print(f'{rank}: checking KL divergence, since klerrordiffmax: ({klerrordiffmax})\n')
-      #if kldivergence:
+        if debug:
+          print(f'{rank}: checking KL divergence, since klerrordiffmax: ({klerrordiffmax})\n')
         if parastrategy == 'inputmatrix':
-          print(f'{rank}: checking MPI KL divergence, since parastrategy: ({parastrategy})\n')
-          #if rank == 0:
-          #  print(f'Wnew: ({Wnew})\n')
-          #  print(f'Hnew: ({Hnew})\n')
-          #print(f'{rank}: Wnew.shape {Wnew.shape}, Hnew.shape {Hnew.shape}\n')
-          #WHkl = cp.dot(Wnew,Hnew)
+          if debug:
+            print(f'{rank}: checking MPI KL divergence, since parastrategy: ({parastrategy})\n')
           WHkl = cp.dot(W,Hnew)
-          print(f'{rank}: WHkl.shape ({WHkl.shape})\n')
+          if debug:
+            print(f'{rank}: WHkl.shape ({WHkl.shape})\n')
           WH_datakl = WHkl.ravel()
-          print(f'{rank}: V[:,mystartcol:myendcol + 1].shape {V[:,mystartcol:myendcol + 1].shape}\n')
+          if debug:
+            print(f'{rank}: V[:,mystartcol:myendcol + 1].shape {V[:,mystartcol:myendcol + 1].shape}\n')
           X_datakl = V[:,mystartcol:myendcol + 1].ravel()
-          if rank == 0:
+          if debug:
             print(f'{rank}: WH_datakl: ({WH_datakl})\n')
             print(f'{rank}: X_datakl: ({X_datakl})\n')
-            pass
           indices = X_datakl > EPSILON
           antiindices = X_datakl <= EPSILON
-          if rank == 0:
+          if debug:
             print(f'{rank}: antiindices: ({antiindices})\n')
-            pass
           WH_datakl = WH_datakl[indices]
           X_datakl = X_datakl[indices]
           WH_datakl[WH_datakl == 0] = EPSILON
-          if rank == 0:
+          if debug:
             print(f'{rank}: after indices and EPSILON, WH_datakl: ({WH_datakl})\n')
             print(f'{rank}: after indices and EPSILON, X_datakl: ({X_datakl})\n')
-            pass
-          #if rank == 0:
-          #  print(f'{rank}: WH_data: ({WH_data})\n')
-          #  print(f'{rank}: X_data: ({X_data})\n')
-          #sum_WH = cp.dot(cp.sum(W, axis=0), cp.sum(H, axis=1))
-          #sum_WH = cp.dot(cp.sum(Wnew, axis=0), cp.sum(Hnew, axis=1))
           sum_WH = cp.dot(cp.sum(W, axis=0), cp.sum(Hnew, axis=1))
           div = X_datakl / WH_datakl
-          if rank == 0:
+          if debug:
             print(f'{rank}: X_datakl / WH_datakl, div: ({div})\n')
-            pass
           res = cp.dot(X_datakl, cp.log(div))
-          if rank == 0:
+          if debug:
             print(f'{rank}: cp.log(div) ({cp.log(div)})\n')
             print(f'{rank}: dot(X_data, cp.log(div)), res: ({res})\n')
-            pass
           res += sum_WH - X_datakl.sum()
-          if rank == 0:
+          if debug:
             print(f'{rank}: adding sum_WH ({sum_WH}) - X_datakl.sum() ({X_datakl.sum()}) to starting res,  ending res: ({res})\n')
-            pass
-          #if rank == 0:
-          #  print(f'{rank}: res: ({res})\n')
-          #sendbuf = cp.asarray(res)
-          #recvbuf = cp.empty_like(sendbuf)
-          #assert hasattr(sendbuf, '__cuda_array_interface__')
-          #assert hasattr(recvbuf, '__cuda_array_interface__')
-          #cp.cuda.get_current_stream().synchronize()
-          #comm.Allreduce(sendbuf, recvbuf)
-          #assert cp.allclose(recvbuf, sendbuf*numtasks)
-          #totalres = cp.empty_like(res)
           totalres = cp.zeros_like(res)
-          if rank == 0:
+          if debug:
             print(f'{rank}: empty totalres: ({totalres})\n')
-            pass
-          #comm.Reduce(res, totalres, op=MPI.SUM, root=0)
           comm.Allreduce(res, totalres)
           error = numpy.sqrt(2 * totalres)
           if type(oldmpierror) == types.NoneType:
@@ -433,24 +358,26 @@ def runnmf(inputmatrix=None,kfactor=2,checkinterval=10,threshold=40,maxiteration
           else:
             errordiff = oldmpierror - error
             oldmpierror = error
-          if rank == 0:
+          if debug:
             print(f'{rank}: afer Reduce, totalres: ({totalres})\n')
             print(f'{rank}: MPI KL divergence, error: ({error})\n')
             print(f'{rank}: mpi error difference: {errordiff}\n')
           if (not type(errordiff) == types.NoneType) and errordiff < klerrordiffmax:
-            print(f'{rank}: interationcount ({iterationcount}): errordiff ({errordiff}) < klerrordiffmax ({klerrordiffmax}), return(W,H)\n')
+            if debug:
+              print(f'{rank}: interationcount ({iterationcount}): errordiff ({errordiff}) < klerrordiffmax ({klerrordiffmax}), return(W,H)\n')
             return(W,H)
           else:
-            print(f'{rank}: interationcount ({iterationcount}): errordiff ({errordiff}) not less than klerrordiffmax ({klerrordiffmax})\n')
+            if debug:
+              print(f'{rank}: interationcount ({iterationcount}): errordiff ({errordiff}) not less than klerrordiffmax ({klerrordiffmax})\n')
         else:
-          print(f'{rank}: checking serial KL divergence, since parastrategy: ({parastrategy})\n')
+          if debug:
+            print(f'{rank}: checking serial KL divergence, since parastrategy: ({parastrategy})\n')
           cp.cuda.Stream.null.synchronize()
           WHkl = cp.dot(W,H)
           cp.cuda.Stream.null.synchronize()
           WH_datakl = WHkl.ravel()
           cp.cuda.Stream.null.synchronize()
           X_datakl = V.ravel()
-          #X_datakl = WHkl.ravel()
           cp.cuda.Stream.null.synchronize()
           indices = X_datakl > EPSILON
           cp.cuda.Stream.null.synchronize()
@@ -462,39 +389,49 @@ def runnmf(inputmatrix=None,kfactor=2,checkinterval=10,threshold=40,maxiteration
           cp.cuda.Stream.null.synchronize()
           sum_WH = cp.dot(cp.sum(W, axis=0), cp.sum(H, axis=1))
           cp.cuda.Stream.null.synchronize()
-          print(f'{rank}: cp.sum(W, axis=0).shape ({cp.sum(W, axis=0).shape}), cp.sum(H, axis=1).shape ({cp.sum(H, axis=1).shape})\n')
-          print(f'{rank}: dot(cp.sum(W, axis=0), cp.sum(H, axis=1), sum_WH: ({sum_WH})\n')
+          if debug:
+            print(f'{rank}: cp.sum(W, axis=0).shape ({cp.sum(W, axis=0).shape}), cp.sum(H, axis=1).shape ({cp.sum(H, axis=1).shape})\n')
+            print(f'{rank}: dot(cp.sum(W, axis=0), cp.sum(H, axis=1), sum_WH: ({sum_WH})\n')
           div = X_datakl / WH_datakl
           cp.cuda.Stream.null.synchronize()
-          print(f'{rank}: X_datakl / WH_datakl, div: ({div})\n')
+          if debug:
+            print(f'{rank}: X_datakl / WH_datakl, div: ({div})\n')
           res = cp.dot(X_datakl, cp.log(div))
           cp.cuda.Stream.null.synchronize()
-          print(f'{rank}: cp.log(div) ({cp.log(div)})\n')
-          print(f'{rank}: dot(X_data, cp.log(div)), res: ({res})\n')
-          print(f'{rank}: adding sum_WH ({sum_WH}) - X_datakl.sum() ({X_datakl.sum()}) to starting res,  ending res: ({res})\n')
+          if debug:
+            print(f'{rank}: cp.log(div) ({cp.log(div)})\n')
+            print(f'{rank}: dot(X_data, cp.log(div)), res: ({res})\n')
+            print(f'{rank}: adding sum_WH ({sum_WH}) - X_datakl.sum() ({X_datakl.sum()}) to starting res,  ending res: ({res})\n')
           res += sum_WH - X_datakl.sum()
           cp.cuda.Stream.null.synchronize()
-          print(f'{rank}: KL divergence, serial calculation, res: ({res})\n')
+          if debug:
+            print(f'{rank}: KL divergence, serial calculation, res: ({res})\n')
           error = cp.sqrt(2 * res)
-          print(f'{rank}: oldserialerror: {oldserialerror}\n')
+          if debug:
+            print(f'{rank}: oldserialerror: {oldserialerror}\n')
           if type(oldserialerror) == types.NoneType:
             errordiff = None
             oldserialerror = error
           else:
             errordiff = oldserialerror - error
-            print(f'{rank}: serial error difference: {errordiff}\n')
+            if debug:
+              print(f'{rank}: serial error difference: {errordiff}\n')
             oldserialerror = error
           cp.cuda.Stream.null.synchronize()
-          print(f'{rank}: KL divergence, serial calculation, error: ({error})\n')
-          KLFO.write(f'{iterationcount}\t{error}\n')
+          if debug:
+            print(f'{rank}: KL divergence, serial calculation, error: ({error})\n')
+          #KLFO.write(f'{iterationcount}\t{error}\n')
           if (not type(errordiff) == types.NoneType) and errordiff < klerrordiffmax:
-            print(f'{rank}: interationcount ({iterationcount}): errordiff ({errordiff}) < klerrordiffmax ({klerrordiffmax}), return(W,H)\n')
+            if debug:
+              print(f'{rank}: interationcount ({iterationcount}): errordiff ({errordiff}) < klerrordiffmax ({klerrordiffmax}), return(W,H)\n')
             return(W,H)
           else:
-            print(f'{rank}: interationcount ({iterationcount}): errordiff ({errordiff}) not less than klerrordiffmax ({klerrordiffmax})\n')
+            if debug:
+              print(f'{rank}: interationcount ({iterationcount}): errordiff ({errordiff}) not less than klerrordiffmax ({klerrordiffmax})\n')
 
       else:
-        print(f'{rank}: checking classification change, since klerrordiffmax: ({klerrordiffmax})\n')
+        if debug:
+          print(f'{rank}: checking classification change, since klerrordiffmax: ({klerrordiffmax})\n')
         # check classification
         # H is kxM matrix.  classification is 1xM array, with each element
         # the row index of the max of the elements in that column.
@@ -536,7 +473,6 @@ def runnmf(inputmatrix=None,kfactor=2,checkinterval=10,threshold=40,maxiteration
               print(f'{rank}: 1. equal?: ({cp.array_equal(oldclassification, newclassification)})\n')
           sameclassificationcount = sameclassificationcount + 1
           if sameclassificationcount >= threshold:
-            debug = True
             if debug:
               if rank == 0:
                 print(f'{rank}: classification unchanged in {sameclassificationcount} trials,breaking.\n')
@@ -546,10 +482,6 @@ def runnmf(inputmatrix=None,kfactor=2,checkinterval=10,threshold=40,maxiteration
             debug = olddebug
             if debug:
               print(f'{rank}: V: ({V})\n')
-              print(f'{rank}: WH: ({cp.matmul(W,H)})\n')
-            #print(f'{rank}: WH: ({cp.matmul(W,H)})\n')
-            #print(f'{rank}: WH: ({cp.matmul(W,Hnewfull)})\n')
-            #return((W,Hnewfull))
             return(W,H)
         else:
           if debug:
@@ -560,31 +492,46 @@ def runnmf(inputmatrix=None,kfactor=2,checkinterval=10,threshold=40,maxiteration
           oldclassification = newclassification
           sameclassificationcount = 0
     iterationcount = iterationcount + 1
-  KLFO.close()
+  #KLFO.close()
   if debug:
     print(f'{rank}: iterationcount ({iterationcount})\n')
   debug = olddebug
 
 if __name__ == '__main__':
+  parser = argparse.ArgumentParser()
+  #parser.add_argument('-s', '--parastrategy', dest='parastrategy', action='store', choices=['kfactor', 'inputmatrix', 'serial'])
+  #parser.add_argument('-v', '--verbose', dest='verbose', action='store_true')
+  #parser.add_argument('-i', '--maxiterations', dest='maxiterations', action='store')
+  #parser.add_argument('-j', '--checkinterval', dest='checkinterval', action='store')
+  #parser.add_argument('-k', '--kfactor', dest='kfactor', action='store')
+  #parser.add_argument('-m', '--inputmatrix', dest='inputmatrix', action='store')
+  #parser.add_argument('-s', '--seed', dest='seed', action='store')
+  #parser.add_argument('-t', '--threshold', dest='threshold', action='store')
+  #parser.add_argument('-v', '--verbose', dest='verbose', action='store_true')
+
+  parser.add_argument('-a', '--seed', dest='seed', action='store')
+  parser.add_argument('-i', '--inputfile', dest='inputfile', action='store')
+  parser.add_argument('-j', '--interval', dest='interval', action='store')
+  parser.add_argument('-k', '--kfactor', dest='kfactor', action='store')
+  parser.add_argument('-l', '--klerrordiffmax', dest='klerrordiffmax', action='store')
+  parser.add_argument('-s', '--parastrategy', dest='parastrategy', action='store', choices=['inputmatrix', 'serial'])
+  parser.add_argument('-t', '--consecutive', dest='consecutive', action='store')
+  parser.add_argument('-v', '--verbose', dest='verbose', action='store_true')
+  parser.add_argument('-x', '--maxiterations', dest='maxiterations', action='store')
+
+  args = parser.parse_args()
+  klerrordiffmax = float(args.klerrordiffmax)
+  checkinterval = int(args.interval)
+  maxiterations = int(args.maxiterations)
+  threshold = int(args.consecutive)
+  debug = args.verbose
   comm = MPI.COMM_WORLD
   rank = comm.Get_rank()
   numtasks = comm.Get_size()
-  print(f'rank: ({rank}), numtasks: ({numtasks})\n')
-  parser = argparse.ArgumentParser()
-  parser.add_argument('-s', '--parastrategy', dest='parastrategy', action='store', choices=['kfactor', 'inputmatrix', 'serial'])
-  parser.add_argument('-v', '--verbose', dest='verbose', action='store_true')
-  parser.add_argument('-m', '--inputmatrix', dest='inputmatrix', action='store')
-  parser.add_argument('-k', '--kfactor', dest='kfactor', action='store')
-  parser.add_argument('-j', '--checkinterval', dest='checkinterval', action='store')
-  parser.add_argument('-t', '--threshold', dest='threshold', action='store')
-  parser.add_argument('-i', '--maxiterations', dest='maxiterations', action='store')
-  parser.add_argument('-s', '--seed', dest='seed', action='store')
-  args = parser.parse_args()
-  checkinterval = int(args.checkinterval)
-  maxiterations = int(args.maxiterations)
-  threshold = int(args.threshold)
-  debug = args.verbose
-  V = cp.loadtxt(fname=args.inputmatrix)
-  W, H = runnmf(inputmatrix=V, kfactor=int(args.kfactor), checkinterval=checkinterval, threshold=threshold, maxiterations=maxiterations, seed=int(args.seed), debug=debug, comm=comm, parastrategy=args.parastrategy)
-  cp.savetxt(os.path.basename(args.inputmatrix) + '_H.txt', H)
+  if debug:
+    print(f'rank: ({rank}), numtasks: ({numtasks})\n')
+  V = cp.loadtxt(fname=args.inputfile)
+  W, H = runnmf(inputmatrix=V, kfactor=int(args.kfactor), checkinterval=checkinterval, threshold=threshold, maxiterations=maxiterations, seed=int(args.seed), debug=debug, comm=comm, parastrategy=args.parastrategy, klerrordiffmax=klerrordiffmax)
+  cp.savetxt(os.path.basename(args.inputfile) + '_H.txt', H)
+  cp.savetxt(os.path.basename(args.inputfile) + '_W.txt', W)
   MPI.Finalize()
