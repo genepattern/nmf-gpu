@@ -68,13 +68,15 @@ class NP_GCT:
             rowDescriptions = self.rowdescriptions;
             colNames = self.columnnames;
         
-            if not rowNames:
+            #if not rowNames:
+            if len(rowNames) == 0:
                 rowNames = ["{:}".format(n) for n in range(1,self.data.shape[0]+1)]
         
             if not rowDescriptions:
                 rowDescriptions = rowNames
         
-            if not colNames:
+            #if not colNames:
+            if len(colNames) == 0:
                 colNames =  ["{:}".format(n) for n in range(1,self.data.shape[1]+1)]
         
             file.write('#1.2\n' + str(nRows) + '\t' + str(nCols) + '\n')

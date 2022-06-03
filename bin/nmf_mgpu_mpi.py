@@ -361,10 +361,90 @@ def runnmf(inputmatrix=None,kfactor=2,checkinterval=10,threshold=40,maxiteration
       #kldivergence = None
       kldivergence = True
       if not klerrordiffmax == None:
+        print(f'{rank}: checking KL divergence, since klerrordiffmax: ({klerrordiffmax})\n')
       #if kldivergence:
-        # as a test, calculate KL divergence with rank 0 only
-        cp.cuda.Stream.null.synchronize()
-        if rank == 0 and seed == 1:
+        if parastrategy == 'inputmatrix':
+          print(f'{rank}: checking MPI KL divergence, since parastrategy: ({parastrategy})\n')
+          #if rank == 0:
+          #  print(f'Wnew: ({Wnew})\n')
+          #  print(f'Hnew: ({Hnew})\n')
+          #print(f'{rank}: Wnew.shape {Wnew.shape}, Hnew.shape {Hnew.shape}\n')
+          #WHkl = cp.dot(Wnew,Hnew)
+          WHkl = cp.dot(W,Hnew)
+          print(f'{rank}: WHkl.shape ({WHkl.shape})\n')
+          WH_datakl = WHkl.ravel()
+          print(f'{rank}: V[:,mystartcol:myendcol + 1].shape {V[:,mystartcol:myendcol + 1].shape}\n')
+          X_datakl = V[:,mystartcol:myendcol + 1].ravel()
+          if rank == 0:
+            print(f'{rank}: WH_datakl: ({WH_datakl})\n')
+            print(f'{rank}: X_datakl: ({X_datakl})\n')
+            pass
+          indices = X_datakl > EPSILON
+          antiindices = X_datakl <= EPSILON
+          if rank == 0:
+            print(f'{rank}: antiindices: ({antiindices})\n')
+            pass
+          WH_datakl = WH_datakl[indices]
+          X_datakl = X_datakl[indices]
+          WH_datakl[WH_datakl == 0] = EPSILON
+          if rank == 0:
+            print(f'{rank}: after indices and EPSILON, WH_datakl: ({WH_datakl})\n')
+            print(f'{rank}: after indices and EPSILON, X_datakl: ({X_datakl})\n')
+            pass
+          #if rank == 0:
+          #  print(f'{rank}: WH_data: ({WH_data})\n')
+          #  print(f'{rank}: X_data: ({X_data})\n')
+          #sum_WH = cp.dot(cp.sum(W, axis=0), cp.sum(H, axis=1))
+          #sum_WH = cp.dot(cp.sum(Wnew, axis=0), cp.sum(Hnew, axis=1))
+          sum_WH = cp.dot(cp.sum(W, axis=0), cp.sum(Hnew, axis=1))
+          div = X_datakl / WH_datakl
+          if rank == 0:
+            print(f'{rank}: X_datakl / WH_datakl, div: ({div})\n')
+            pass
+          res = cp.dot(X_datakl, cp.log(div))
+          if rank == 0:
+            print(f'{rank}: cp.log(div) ({cp.log(div)})\n')
+            print(f'{rank}: dot(X_data, cp.log(div)), res: ({res})\n')
+            pass
+          res += sum_WH - X_datakl.sum()
+          if rank == 0:
+            print(f'{rank}: adding sum_WH ({sum_WH}) - X_datakl.sum() ({X_datakl.sum()}) to starting res,  ending res: ({res})\n')
+            pass
+          #if rank == 0:
+          #  print(f'{rank}: res: ({res})\n')
+          #sendbuf = cp.asarray(res)
+          #recvbuf = cp.empty_like(sendbuf)
+          #assert hasattr(sendbuf, '__cuda_array_interface__')
+          #assert hasattr(recvbuf, '__cuda_array_interface__')
+          #cp.cuda.get_current_stream().synchronize()
+          #comm.Allreduce(sendbuf, recvbuf)
+          #assert cp.allclose(recvbuf, sendbuf*numtasks)
+          #totalres = cp.empty_like(res)
+          totalres = cp.zeros_like(res)
+          if rank == 0:
+            print(f'{rank}: empty totalres: ({totalres})\n')
+            pass
+          #comm.Reduce(res, totalres, op=MPI.SUM, root=0)
+          comm.Allreduce(res, totalres)
+          error = numpy.sqrt(2 * totalres)
+          if type(oldmpierror) == types.NoneType:
+            errordiff = None
+            oldmpierror = error
+          else:
+            errordiff = oldmpierror - error
+            oldmpierror = error
+          if rank == 0:
+            print(f'{rank}: afer Reduce, totalres: ({totalres})\n')
+            print(f'{rank}: MPI KL divergence, error: ({error})\n')
+            print(f'{rank}: mpi error difference: {errordiff}\n')
+          if (not type(errordiff) == types.NoneType) and errordiff < klerrordiffmax:
+            print(f'{rank}: interationcount ({iterationcount}): errordiff ({errordiff}) < klerrordiffmax ({klerrordiffmax}), return(W,H)\n')
+            return(W,H)
+          else:
+            print(f'{rank}: interationcount ({iterationcount}): errordiff ({errordiff}) not less than klerrordiffmax ({klerrordiffmax})\n')
+        else:
+          print(f'{rank}: checking serial KL divergence, since parastrategy: ({parastrategy})\n')
+          cp.cuda.Stream.null.synchronize()
           WHkl = cp.dot(W,H)
           cp.cuda.Stream.null.synchronize()
           WH_datakl = WHkl.ravel()
@@ -398,93 +478,23 @@ def runnmf(inputmatrix=None,kfactor=2,checkinterval=10,threshold=40,maxiteration
           error = cp.sqrt(2 * res)
           print(f'{rank}: oldserialerror: {oldserialerror}\n')
           if type(oldserialerror) == types.NoneType:
+            errordiff = None
             oldserialerror = error
           else:
-            print(f'{rank}: serial error difference: {oldserialerror - error}\n')
+            errordiff = oldserialerror - error
+            print(f'{rank}: serial error difference: {errordiff}\n')
             oldserialerror = error
           cp.cuda.Stream.null.synchronize()
           print(f'{rank}: KL divergence, serial calculation, error: ({error})\n')
           KLFO.write(f'{iterationcount}\t{error}\n')
-
-        #if rank == 0:
-        #  print(f'Wnew: ({Wnew})\n')
-        #  print(f'Hnew: ({Hnew})\n')
-        #print(f'{rank}: Wnew.shape {Wnew.shape}, Hnew.shape {Hnew.shape}\n')
-        #WHkl = cp.dot(Wnew,Hnew)
-        WHkl = cp.dot(W,Hnew)
-        print(f'{rank}: WHkl.shape ({WHkl.shape})\n')
-        WH_datakl = WHkl.ravel()
-        print(f'{rank}: V[:,mystartcol:myendcol + 1].shape {V[:,mystartcol:myendcol + 1].shape}\n')
-        X_datakl = V[:,mystartcol:myendcol + 1].ravel()
-        if rank == 0:
-          print(f'{rank}: WH_datakl: ({WH_datakl})\n')
-          print(f'{rank}: X_datakl: ({X_datakl})\n')
-          pass
-        indices = X_datakl > EPSILON
-        antiindices = X_datakl <= EPSILON
-        if rank == 0:
-          print(f'{rank}: antiindices: ({antiindices})\n')
-          pass
-        WH_datakl = WH_datakl[indices]
-        X_datakl = X_datakl[indices]
-        WH_datakl[WH_datakl == 0] = EPSILON
-        if rank == 0:
-          print(f'{rank}: after indices and EPSILON, WH_datakl: ({WH_datakl})\n')
-          print(f'{rank}: after indices and EPSILON, X_datakl: ({X_datakl})\n')
-          pass
-        #if rank == 0:
-        #  print(f'{rank}: WH_data: ({WH_data})\n')
-        #  print(f'{rank}: X_data: ({X_data})\n')
-        #sum_WH = cp.dot(cp.sum(W, axis=0), cp.sum(H, axis=1))
-        #sum_WH = cp.dot(cp.sum(Wnew, axis=0), cp.sum(Hnew, axis=1))
-        sum_WH = cp.dot(cp.sum(W, axis=0), cp.sum(Hnew, axis=1))
-        div = X_datakl / WH_datakl
-        if rank == 0:
-          print(f'{rank}: X_datakl / WH_datakl, div: ({div})\n')
-          pass
-        res = cp.dot(X_datakl, cp.log(div))
-        if rank == 0:
-          print(f'{rank}: cp.log(div) ({cp.log(div)})\n')
-          print(f'{rank}: dot(X_data, cp.log(div)), res: ({res})\n')
-          pass
-        res += sum_WH - X_datakl.sum()
-        if rank == 0:
-          print(f'{rank}: adding sum_WH ({sum_WH}) - X_datakl.sum() ({X_datakl.sum()}) to starting res,  ending res: ({res})\n')
-          pass
-        #if rank == 0:
-        #  print(f'{rank}: res: ({res})\n')
-        #sendbuf = cp.asarray(res)
-        #recvbuf = cp.empty_like(sendbuf)
-        #assert hasattr(sendbuf, '__cuda_array_interface__')
-        #assert hasattr(recvbuf, '__cuda_array_interface__')
-        #cp.cuda.get_current_stream().synchronize()
-        #comm.Allreduce(sendbuf, recvbuf)
-        #assert cp.allclose(recvbuf, sendbuf*numtasks)
-        #totalres = cp.empty_like(res)
-        totalres = cp.zeros_like(res)
-        if rank == 0:
-          print(f'{rank}: empty totalres: ({totalres})\n')
-          pass
-        #comm.Reduce(res, totalres, op=MPI.SUM, root=0)
-        comm.Allreduce(res, totalres)
-        error = numpy.sqrt(2 * totalres)
-        if type(oldmpierror) == types.NoneType:
-          errordiff = None
-          oldmpierror = error
-        else:
-          errordiff = oldmpierror - error
-          oldmpierror = error
-        if rank == 0:
-          print(f'{rank}: afer Reduce, totalres: ({totalres})\n')
-          print(f'{rank}: MPI KL divergence, error: ({error})\n')
-          print(f'{rank}: mpi error difference: {errordiff}\n')
-        if (not type(errordiff) == types.NoneType) and errordiff < klerrordiffmax:
-          print(f'{rank}: interationcount ({iterationcount}): errordiff ({errordiff}) < klerrordiffmax ({klerrordiffmax}), return(W,H)\n')
-          return(W,H)
-        else:
-          print(f'{rank}: interationcount ({iterationcount}): errordiff ({errordiff}) not less than klerrordiffmax ({klerrordiffmax})\n')
+          if (not type(errordiff) == types.NoneType) and errordiff < klerrordiffmax:
+            print(f'{rank}: interationcount ({iterationcount}): errordiff ({errordiff}) < klerrordiffmax ({klerrordiffmax}), return(W,H)\n')
+            return(W,H)
+          else:
+            print(f'{rank}: interationcount ({iterationcount}): errordiff ({errordiff}) not less than klerrordiffmax ({klerrordiffmax})\n')
 
       else:
+        print(f'{rank}: checking classification change, since klerrordiffmax: ({klerrordiffmax})\n')
         # check classification
         # H is kxM matrix.  classification is 1xM array, with each element
         # the row index of the max of the elements in that column.

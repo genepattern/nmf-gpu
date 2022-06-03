@@ -1,4 +1,4 @@
-#!/gpfs/wolf/trn008/proj-shared/teammesirov/conda_envs/cupyenv/bin/python
+#!/expanse/lustre/projects/ddp242/kenneth/pure/install/venv/bin/python3
 # from NMF GPU Functional specification document:
 # ...
 #A pseudocode representation of the workflow we’re looking for is below. We are also interested in timing statistics - most important is wall clock time from start to finish, but if we can time each iteration of k that would be very helpful also.
@@ -53,6 +53,8 @@ from mpi4py import MPI
 comm = MPI.COMM_WORLD
 mpi_rank = comm.rank
 mpi_size = comm.size
+#rank = mpi_rank
+#numtasks = mpi_size
 
 
 def divide_almost_equally(arr, num_chunks):
@@ -74,28 +76,33 @@ def divide_almost_equally(arr, num_chunks):
 
 
 ############  add local functions
-sys.path.append("/gpfs/wolf/trn008/scratch/liefeld/nmf-gpu/wrapper")
+sys.path.append("/expanse/lustre/projects/ddp242/kenneth/pure/nmf-gpu/wrapper")
 from readgct import NP_GCT
-sys.path.append("/gpfs/wolf/trn008/scratch/liefeld/nmf-gpu/bin")
-from nmf_mgpu_fun import runnmf
+sys.path.append("/expanse/lustre/projects/ddp242/kenneth/pure/nmf-gpu/bin")
+from nmf_mgpu_mpi import runnmf
 ###########
 
 parser = argparse.ArgumentParser()
-parser.add_argument('-v', '--verbose', dest='verbose', action='store_true')
-parser.add_argument('-p', '--gpuprogrampath', dest='gpuprogrampath', action='store')
-parser.add_argument('-d', '--jobdir', dest='jobdir', action='store')
-parser.add_argument('-i', '--inputfile', dest='inputfile', action='store')
-parser.add_argument('-m', '--mink', dest='mink', action='store')
-parser.add_argument('-e', '--maxk', dest='maxk', action='store')
 parser.add_argument('-a', '--startseed', dest='startseed', action='store')
-parser.add_argument('-r', '--seeds', dest='seeds', action='store')
+parser.add_argument('-b', '--vref', dest='vref', action='store')
+parser.add_argument('-c', '--nocleanup', dest='nocleanup', action='store_true')
+parser.add_argument('-d', '--jobdir', dest='jobdir', action='store')
+parser.add_argument('-e', '--maxk', dest='maxk', action='store')
+parser.add_argument('-f', '--href', dest='href', action='store')
+parser.add_argument('-p', '--gpuprogrampath', dest='gpuprogrampath', action='store')
+parser.add_argument('-i', '--inputfile', dest='inputfile', action='store')
 parser.add_argument('-j', '--interval', dest='interval', action='store')
-parser.add_argument('-t', '--consecutive', dest='consecutive', action='store')
-parser.add_argument('-x', '--maxiterations', dest='maxiterations', action='store')
+parser.add_argument('-k', '--keepintermediatefiles', dest='keepintermediatefiles', action='store_true')
+parser.add_argument('-l', '--klerrordiffmax', dest='klerrordiffmax', action='store')
+parser.add_argument('-m', '--mink', dest='mink', action='store')
 parser.add_argument('-n', '--numtasks', dest='mpitasks', action='store')
 parser.add_argument('-o', '--outputfileprefix', dest='outputfileprefix', action='store')
-parser.add_argument('-k', '--keepintermediatefiles', dest='keepintermediatefiles', action='store_true')
-parser.add_argument('-c', '--nocleanup', dest='nocleanup', action='store_true')
+parser.add_argument('-r', '--seeds', dest='seeds', action='store')
+parser.add_argument('-s', '--parastrategy', dest='parastrategy', action='store', choices=['kfactor', 'inputmatrix', 'serial'])
+parser.add_argument('-t', '--consecutive', dest='consecutive', action='store')
+parser.add_argument('-v', '--verbose', dest='verbose', action='store_true')
+parser.add_argument('-w', '--wref', dest='wref', action='store')
+parser.add_argument('-x', '--maxiterations', dest='maxiterations', action='store')
 args = parser.parse_args()
 GPUPROGRAMPATH = args.gpuprogrampath
 JOBDIR = args.jobdir
@@ -109,6 +116,13 @@ JOBDIR = args.jobdir
 debug = args.verbose
 # read INPUTFILE as gct file
 gct_data = NP_GCT(args.inputfile)
+vref = args.vref
+href = args.href
+wref = args.wref
+if args.klerrordiffmax:
+  klerrordiffmax = float(args.klerrordiffmax)
+else:
+  klerrordiffmax = None
 
 V = gct_data.data
 
@@ -121,8 +135,13 @@ if debug:
 
 
 k_values = np.arange(mink, maxk +1)
-k_subsets = divide_almost_equally(k_values, mpi_size)
-my_k_indices = k_subsets[mpi_rank]
+#k_subsets = divide_almost_equally(k_values, mpi_size)
+#my_k_indices = k_subsets[mpi_rank]
+if args.parastrategy == 'kfactor':
+  k_subsets = divide_almost_equally(k_values, mpi_size)
+  my_k_indices = k_subsets[mpi_rank]
+else:
+  my_k_indices = k_values
 try:
   for k in my_k_indices:
     if debug:
@@ -131,17 +150,21 @@ try:
     for seed in seed_list:
       if debug:
         DEBUGOPTION = '--verbose'
+        DEBUGVAL = True
       else:
         DEBUGOPTION = ''
+        DEBUGVAL = False
       
       start = time.process_time() 
-      WH = runnmf(inputmatrix=V, kfactor=k, checkinterval=int(args.interval), threshold=int(args.consecutive), maxiterations=int(args.maxiterations), seed=seed, debug=False)
+      WH = runnmf(inputmatrix=V, kfactor=k, checkinterval=int(args.interval), threshold=int(args.consecutive), maxiterations=int(args.maxiterations), seed=seed, debug=DEBUGVAL, comm=comm, parastrategy=args.parastrategy, klerrordiffmax=klerrordiffmax)
       
-      #print("xxxxxxxxxxxxxxx Elapsed time for k=" + str(k) + ": " + str(time.process_time() - start));
-      #print("return from runnmf is " + str(WH)) 
+      print("xxxxxxxxxxxxxxx Elapsed time for k=" + str(k) + ": " + str(time.process_time() - start));
+      print("return from runnmf is " + str(WH)) 
       if (not WH):
+          sys.exit(1)
           continue
       i = cp.asnumpy(cp.argmax(WH[1], axis=0))
+      print(f'i, argmax of WH[1]: ({i})\n')
       together_counts[i[:, None] == i[None, :]] += 1
 
       #maxrow_list = []
@@ -173,13 +196,14 @@ try:
     # for MPI scatter/gather
     results.append(together_counts)
     numpy.set_printoptions(threshold=M*M)
-    #print('consensus matrix shape ({})'.format(together_counts.shape))
-    #sys.stdout.write('consensus matrix:')
-    #for i_index in range(M):
-    #  sys.stdout.write('\n')
-    #  for j_index in range(M):
-    #    sys.stdout.write('{:>2.0f}'.format(together_counts[i_index, j_index]))
-    #sys.stdout.write('\n')
+    print('consensus matrix shape ({})'.format(together_counts.shape))
+    print(f'together_counts: ({together_counts})\n')
+    sys.stdout.write('consensus matrix:')
+    for i_index in range(M):
+      sys.stdout.write('\n')
+      for j_index in range(M):
+        sys.stdout.write('{:>2.0f}'.format(together_counts[i_index, j_index]))
+    sys.stdout.write('\n')
     
     
     i_counts = together_counts.astype(int)    
@@ -193,10 +217,10 @@ try:
     
     # sort the samples in the consensus matrix for the plot
     countsdf=pd.DataFrame(i_counts, columns=gct_data.columnnames, index=gct_data.columnnames)
-    kmeans = KMeans(n_clusters=2).fit(countsdf)
+    kmeans = cluster.KMeans(n_clusters=2).fit(countsdf)
     labels = kmeans.labels_
 
-    namedf = pd.DataFrame(labels, index = data.columnnames)
+    namedf = pd.DataFrame(labels, index = gct_data.columnnames)
     sortedNames = namedf.sort_values(0).index
 
     countsdf = countsdf[sortedNames]
@@ -212,7 +236,7 @@ try:
     im = plt.imshow(sorted_i_counts, cmap='bwr', interpolation='nearest')
 
     ax.set_xticks(np.arange(len(sortedNames)), labels=sortedNames)
-    ax.set_yticks(np.arange(len(sortedNames)), labels=sortedNnames)
+    ax.set_yticks(np.arange(len(sortedNames)), labels=sortedNames)
 
     # Rotate the tick labels and set their alignment.
     plt.setp(ax.get_xticklabels(), rotation=45, ha="right",  rotation_mode="anchor")
@@ -225,7 +249,7 @@ try:
         file.write(str(k) + "\t" + str(cophenetic_correlation_distance) + "\n")
 
 
-  comm.gather(results, root=0)
+  #comm.gather(results, root=0)
 except:
   traceback.print_tb(sys.exc_info()[2])
   print("Unexpected error:", sys.exc_info()[0])
