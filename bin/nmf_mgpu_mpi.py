@@ -132,6 +132,15 @@ def runnmf(inputmatrix=None,kfactor=2,checkinterval=10,threshold=40,maxiteration
     print(f'{rank}: initial Wt: ({Wt})\n')
     print(f'{rank}: V: ({V})\n')
     print(f'{rank}: WH: ({cp.matmul(W,H)})\n')
+    # write out pickled W and H
+    #WFO = open(f'k-{kfactor}.seed-{seed}.initialW.pkl', 'w')
+    #pickle.dump(cp.asnumpy(W), WFO, protocol=0)
+    #WFO.close()
+    #HFO = open(f'k-{kfactor}.seed-{seed}.initialH.pkl', 'w')
+    #pickle.dump(cp.asnumpy(H), HFO, protocol=0)
+    #HFO.close()
+    cp.asnumpy(W).dump(f'k-{kfactor}.seed-{seed}.initialW.pkl')
+    cp.asnumpy(H).dump(f'k-{kfactor}.seed-{seed}.initialH.pkl')
   
   iterationcount = 0
   oldclassification = None
@@ -499,16 +508,6 @@ def runnmf(inputmatrix=None,kfactor=2,checkinterval=10,threshold=40,maxiteration
 
 if __name__ == '__main__':
   parser = argparse.ArgumentParser()
-  #parser.add_argument('-s', '--parastrategy', dest='parastrategy', action='store', choices=['kfactor', 'inputmatrix', 'serial'])
-  #parser.add_argument('-v', '--verbose', dest='verbose', action='store_true')
-  #parser.add_argument('-i', '--maxiterations', dest='maxiterations', action='store')
-  #parser.add_argument('-j', '--checkinterval', dest='checkinterval', action='store')
-  #parser.add_argument('-k', '--kfactor', dest='kfactor', action='store')
-  #parser.add_argument('-m', '--inputmatrix', dest='inputmatrix', action='store')
-  #parser.add_argument('-s', '--seed', dest='seed', action='store')
-  #parser.add_argument('-t', '--threshold', dest='threshold', action='store')
-  #parser.add_argument('-v', '--verbose', dest='verbose', action='store_true')
-
   parser.add_argument('-a', '--seed', dest='seed', action='store')
   parser.add_argument('-i', '--inputfile', dest='inputfile', action='store')
   parser.add_argument('-j', '--interval', dest='interval', action='store')
