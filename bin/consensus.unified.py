@@ -584,6 +584,7 @@ parser.add_argument('-c', '--nocleanup', dest='nocleanup', action='store_true')
 parser.add_argument('-d', '--jobdir', dest='jobdir', action='store')
 parser.add_argument('-e', '--maxk', dest='maxk', action='store')
 parser.add_argument('-f', '--href', dest='href', action='store')
+parser.add_argument('-g', '--noconsensus', dest='noconsensus', action='store_true')
 parser.add_argument('-i', '--inputfile', dest='inputfile', action='store')
 parser.add_argument('-j', '--interval', dest='interval', action='store')
 parser.add_argument('-k', '--keepintermediatefiles', dest='keepintermediatefiles', action='store_true')
@@ -667,62 +668,63 @@ try:
       i = cp.asnumpy(cp.argmax(WH[1], axis=0))
       together_counts[i[:, None] == i[None, :]] += 1
 
-    if mpi_rank == 0 or args.parastrategy in ('serial', 'kfactor'):
-      print(f'{mpi_rank}: finished all seed trials for k={k}, calculating cophenetic correlation distance...\n')
-      # for MPI scatter/gather
-      #results.append(together_counts)
-      numpy.set_printoptions(threshold=M*M)
-      print('consensus matrix shape ({})'.format(together_counts.shape))
-      print(f'together_counts: ({together_counts})\n')
-      sys.stdout.write('consensus matrix:')
-      for i_index in range(M):
+    if not args.noconsensus:
+      if mpi_rank == 0 or args.parastrategy in ('serial', 'kfactor'):
+        print(f'{mpi_rank}: finished all seed trials for k={k}, calculating cophenetic correlation distance...\n')
+        # for MPI scatter/gather
+        #results.append(together_counts)
+        numpy.set_printoptions(threshold=M*M)
+        print('consensus matrix shape ({})'.format(together_counts.shape))
+        #print(f'together_counts: ({together_counts})\n')
+        sys.stdout.write('consensus matrix:')
+        for i_index in range(M):
+          sys.stdout.write('\n')
+          for j_index in range(M):
+            sys.stdout.write('{:>2.0f}'.format(together_counts[i_index, j_index]/10))
         sys.stdout.write('\n')
-        for j_index in range(M):
-          sys.stdout.write('{:>2.0f}'.format(together_counts[i_index, j_index]/10))
-      sys.stdout.write('\n')
-    
-    
-      i_counts = together_counts.astype(int)    
-      consensus_gct = NP_GCT(data=i_counts, rowNames=gct_data.columnnames, colNames=gct_data.columnnames)
-      consensus_gct.write_gct('{}.consensus.k.{}.gct'.format(args.outputfileprefix,k))
-  
-      linkage_mat = scipy.cluster.hierarchy.linkage(together_counts)
-      cdm = scipy.spatial.distance.pdist(together_counts)
-      cophenetic_correlation_distance, cophenetic_distance_matrix = scipy.cluster.hierarchy.cophenet(linkage_mat, cdm)
-      print('k={}, cophenetic_correlation_distance: ({})'.format(k,cophenetic_correlation_distance))
       
-      # sort the samples in the consensus matrix for the plot
-      countsdf=pd.DataFrame(i_counts, columns=gct_data.columnnames, index=gct_data.columnnames)
-      kmeans = cluster.KMeans(n_clusters=2).fit(countsdf)
-      labels = kmeans.labels_
-  
-      namedf = pd.DataFrame(labels, index = gct_data.columnnames)
-      sortedNames = namedf.sort_values(0).index
-  
-      countsdf = countsdf[sortedNames]
-      countsdf = countsdf.reindex(sortedNames)
-      sorted_i_counts = countsdf.to_numpy()
-      sc = NP_GCT(data=sorted_i_counts, rowNames=sortedNames, colNames=sortedNames )
-      sc.write_gct('{}.consensus.k.{}.sorted.gct'.format(args.outputfileprefix,k))
-  
-  
-      fig, ax = plt.subplots()
-      fig.set_figwidth(8)
-      fig.set_figheight(8)
-      im = plt.imshow(sorted_i_counts, cmap='bwr', interpolation='nearest')
-  
-      ax.set_xticks(np.arange(len(sortedNames)), labels=sortedNames)
-      ax.set_yticks(np.arange(len(sortedNames)), labels=sortedNames)
-  
-      # Rotate the tick labels and set their alignment.
-      plt.setp(ax.get_xticklabels(), rotation=45, ha="right",  rotation_mode="anchor")
-  
-      ax.set_title("Consensus Matrix, k="+str(k))
-      fig.tight_layout()
-  
-      plt.savefig('{}.consensus.k.{}.pdf'.format(args.outputfileprefix,k))  
-      with open('{}.cophentic.txt'.format(args.outputfileprefix), 'w') as file:
-          file.write(str(k) + "\t" + str(cophenetic_correlation_distance) + "\n")
+      
+        i_counts = together_counts.astype(int)    
+        consensus_gct = NP_GCT(data=i_counts, rowNames=gct_data.columnnames, colNames=gct_data.columnnames)
+        consensus_gct.write_gct('{}.consensus.k.{}.gct'.format(args.outputfileprefix,k))
+    
+        linkage_mat = scipy.cluster.hierarchy.linkage(together_counts)
+        cdm = scipy.spatial.distance.pdist(together_counts)
+        cophenetic_correlation_distance, cophenetic_distance_matrix = scipy.cluster.hierarchy.cophenet(linkage_mat, cdm)
+        print('k={}, cophenetic_correlation_distance: ({})'.format(k,cophenetic_correlation_distance))
+        
+        # sort the samples in the consensus matrix for the plot
+        countsdf=pd.DataFrame(i_counts, columns=gct_data.columnnames, index=gct_data.columnnames)
+        kmeans = cluster.KMeans(n_clusters=2).fit(countsdf)
+        labels = kmeans.labels_
+    
+        namedf = pd.DataFrame(labels, index = gct_data.columnnames)
+        sortedNames = namedf.sort_values(0).index
+    
+        countsdf = countsdf[sortedNames]
+        countsdf = countsdf.reindex(sortedNames)
+        sorted_i_counts = countsdf.to_numpy()
+        sc = NP_GCT(data=sorted_i_counts, rowNames=sortedNames, colNames=sortedNames )
+        sc.write_gct('{}.consensus.k.{}.sorted.gct'.format(args.outputfileprefix,k))
+    
+    
+        fig, ax = plt.subplots()
+        fig.set_figwidth(8)
+        fig.set_figheight(8)
+        im = plt.imshow(sorted_i_counts, cmap='bwr', interpolation='nearest')
+    
+        ax.set_xticks(np.arange(len(sortedNames)), labels=sortedNames)
+        ax.set_yticks(np.arange(len(sortedNames)), labels=sortedNames)
+    
+        # Rotate the tick labels and set their alignment.
+        plt.setp(ax.get_xticklabels(), rotation=45, ha="right",  rotation_mode="anchor")
+    
+        ax.set_title("Consensus Matrix, k="+str(k))
+        fig.tight_layout()
+    
+        plt.savefig('{}.consensus.k.{}.pdf'.format(args.outputfileprefix,k))  
+        with open('{}.cophentic.txt'.format(args.outputfileprefix), 'w') as file:
+            file.write(str(k) + "\t" + str(cophenetic_correlation_distance) + "\n")
 
 except:
   traceback.print_tb(sys.exc_info()[2])
