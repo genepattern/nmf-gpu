@@ -45,7 +45,7 @@
 # https://github.com/rapidsai/raft
 # https://jocelyn-ong.github.io/hierarchical-clustering-in-SciPy/
 
-# set a hundred seeds (could also read from a file, range with step, etc.):
+# import modules
 import os
 import os.path
 import sys
@@ -78,6 +78,7 @@ import h5py
 from fastdist import fastdist
 import fastcluster
 
+# set data types
 RANDTYPE = cp.float32
 OTHERTYPE = cp.float32
 # seed count more than 255 won't work...
@@ -87,6 +88,7 @@ EPSILON = cp.finfo(OTHERTYPE).eps
 W = None
 H = None
 
+# Class for reading and writing GCT files
 class NP_GCT:
   # #1.2
   # ros cols
@@ -221,6 +223,7 @@ class NP_GCT:
         file.write('\n')
     print("File written " + file_path)
 
+# write numpy format arrays, with associated attributes pickle
 def write_npy(data=None, outputfileprefix=None, colNames=[], rowNames=[], rowDescrip = [], datashape = None):
   attribute_dict = { 'column_names' : colNames,
                      'row_names' : rowNames,
@@ -234,8 +237,7 @@ def write_npy(data=None, outputfileprefix=None, colNames=[], rowNames=[], rowDes
   numpy.save(FO, data)
   FO.close()
          
-# doesn't work on Expanse, as there is not an HDF5 module for the GPU
-# nodes
+# write HDF5 array, including attributes
 def write_h5(data=None, outputfileprefix=None, colNames=[], rowNames=[], rowDescrip = [], datashape = None, comm_world=None):
   rank = comm_world.rank
   outf = h5py.File(outputfileprefix + '.h5', 'w', driver='mpio', comm=comm_world, libver='latest')
@@ -263,6 +265,7 @@ def divide_almost_equally(arr, num_chunks):
         arr_idx += 1
     return list(sets.values())
 
+# For a given kfactor and seed, return W and H
 def runnmf(myVcols=None,myVrows=None, mystartrow=None, myendrow=None,mystartcol=None, myendcol=None, Wsendcountlist=None, Hsendcountlist=None,kfactor=2,checkinterval=10,threshold=40,maxiterations=2000,seed=1,debug=False, comm=None, parastrategy='serial', klerrordiffmax=None):
   thistime = MPI.Wtime()
   #print(f'rank {rank}: finished all k loops: ({thistime - lasttime})\n')
@@ -278,10 +281,8 @@ def runnmf(myVcols=None,myVrows=None, mystartrow=None, myendrow=None,mystartcol=
   #cp.cuda.runtime.setDevice(rank)
   if debug:
     print(f'{rank}: cp.cuda.runtime.getDevice() ({cp.cuda.runtime.getDevice()})\n')
-
   # seed the PRNG
   cp.random.seed(seed)
-
   if debug:
     thistime = MPI.Wtime()
     print(f'rank {rank}: setup time: ({thistime - lasttime})\n')
@@ -313,7 +314,6 @@ def runnmf(myVcols=None,myVrows=None, mystartrow=None, myendrow=None,mystartcol=
     thistime = MPI.Wtime()
     print(f'rank {rank}: random W and H creation time: ({thistime - lasttime})\n')
     lasttime = thistime
-
   iterationcount = 0
   oldclassification = None
   sameclassificationcount = 0
@@ -324,7 +324,6 @@ def runnmf(myVcols=None,myVrows=None, mystartrow=None, myendrow=None,mystartcol=
     print(f'{rank}:{iterationcount} before iterating, mempool.used_bytes(): {mempool.used_bytes()}\n')
     print(f'{rank}:{iterationcount} before iterating, mempool.total_bytes(): {mempool.total_bytes()}\n')
   while iterationcount < maxiterations:
-
     if debug:
       print(f'{rank}:{iterationcount} start of iteration, mempool.used_bytes(): {mempool.used_bytes()}\n')
       print(f'{rank}:{iterationcount} start of iteration, mempool.total_bytes(): {mempool.total_bytes()}\n')
@@ -336,7 +335,6 @@ def runnmf(myVcols=None,myVrows=None, mystartrow=None, myendrow=None,mystartcol=
     # * WH(N,BLMp) = Vcol(N,BLMp) ./ WH(N,BLMp)
     # * Haux(BLM,Kp) = W' * WH(N,BLMp)
     # * H(BLM,Kp) = H(BLM,Kp) .* Haux(BLM,Kp) ./ accum_W
-
     # WH = W * H
     # WH (N x M) = (N x k) * (k x M)
     if debug:
@@ -346,11 +344,10 @@ def runnmf(myVcols=None,myVrows=None, mystartrow=None, myendrow=None,mystartcol=
       print(f'{rank}: H[:,mystartcol:myendcol + 1]: {H[:,mystartcol:myendcol + 1]}\n')
     WHm = cp.matmul(W, H[:,mystartcol:myendcol + 1])
     if debug:
-      print(f'Whmm.dtype: ({WHmm.dtype})\n')
-      print(f'{rank}: after matmul, WHmm.shape: {WHmm.shape}\n')
-      print(f'{rank}: WHmm: ({WHmm})\n')
-      print(f'{rank}: update H, matmul(W, H[:,mystartcol:myendcol + 1]), WHmm: ({WHmm})\n')
-
+      print(f'Whmm.dtype: ({WHm.dtype})\n')
+      print(f'{rank}: after matmul, WHm.shape: {WHm.shape}\n')
+      print(f'{rank}: WHm: ({WHm})\n')
+      print(f'{rank}: update H, matmul(W, H[:,mystartcol:myendcol + 1]), WHm: ({WHm})\n')
     # AUX = V (input matrix) ./ (W*H)
     # AUX (N x M)
     # no nditer in cupy
@@ -364,7 +361,6 @@ def runnmf(myVcols=None,myVrows=None, mystartrow=None, myendrow=None,mystartcol=
       print(f'{rank}: update H, divide(V[:,mystartcol:myendcol + 1], WHm), WHm: ({WHm})\n')
       print(f'{rank}: WHm.dtype ({WHm.dtype})\n')
       print(f'{rank}: Wt.dtype ({Wt.dtype})\n')
-
     # WTAux = Wt * AUX
     if debug:
       print(f'{rank}: Wt: ({Wt})\n')
@@ -374,14 +370,11 @@ def runnmf(myVcols=None,myVrows=None, mystartrow=None, myendrow=None,mystartcol=
       print(f'{rank}:  WTAUX.shape: {WTAUX.shape}\n')
       print(f'{rank}: WTAUX: ({WTAUX})\n')
       print(f'{rank}: update H, matmul(Wt, WH), WTAUX: ({WTAUX})\n')
-
     # how do we get reduced an accumulated ACCWT below?
     # sum each column down to a single value...
     ACCW = cp.sum(W, axis=0)
     # https://towardsdatascience.com/5-methods-to-check-for-nan-values-in-in-python-3f21ddd17eed
-
     # WTAUXDIV = WTAUX ./ ACCWT
-
     if debug:
       print(f'{rank}:  WTAUX.shape: {WTAUX.shape}, ACCW.shape: {ACCW.shape}\n')
       print(f'{rank}: ACCW: ({ACCW})\n')
@@ -389,7 +382,6 @@ def runnmf(myVcols=None,myVrows=None, mystartrow=None, myendrow=None,mystartcol=
     WTAUXDIV = WTAUXDIV.transpose()
     if debug:
       print(f'{rank}: WTAUXDIV: ({WTAUXDIV})\n')
-
     # H = H .* WTAUXDIV
     Hnewnan = cp.multiply(H[:,mystartcol:myendcol + 1], WTAUXDIV)
     Hnew = cp.nan_to_num(Hnewnan, copy=False, nan=EPSILON)
@@ -450,7 +442,6 @@ def runnmf(myVcols=None,myVrows=None, mystartrow=None, myendrow=None,mystartcol=
     if debug:
       print(f'{rank}:{iterationcount} after sync H, mempool.used_bytes(): {mempool.used_bytes()}\n')
       print(f'{rank}:{iterationcount} after sync H, mempool.total_bytes(): {mempool.total_bytes()}\n')
-
     if debug:
       print(f'{rank}: before update W\n')
     # update W
@@ -463,7 +454,6 @@ def runnmf(myVcols=None,myVrows=None, mystartrow=None, myendrow=None,mystartcol=
     if debug:
       print(f'{rank}: H: ({H})\n')
       print(f'{rank}: ACCH: ({ACCH})\n')
-
     WHm = cp.matmul(W[mystartrow:myendrow + 1,:], H)
     WHm = cp.divide(myVrows, WHm)
     # from update_W notes:
@@ -472,7 +462,6 @@ def runnmf(myVcols=None,myVrows=None, mystartrow=None, myendrow=None,mystartcol=
     HTAUX = cp.matmul(WHm, Ht)
     if debug:
       print(f'{rank}: HTAUX: ({HTAUX})\n')
-
     # * W(BLN,Kp) = W(BLN,Kp) .* Waux(BLN,Kp) ./ accum_h
     WWAUXnan = cp.multiply(W[mystartrow:myendrow + 1,:], HTAUX)
     WWAUX = cp.nan_to_num(WWAUXnan, copy=False, nan=EPSILON)
@@ -481,7 +470,6 @@ def runnmf(myVcols=None,myVrows=None, mystartrow=None, myendrow=None,mystartcol=
     WHm = None
     if debug:
       print(f'{rank}: WWAUX: ({WWAUX})\n')
-
     Wnewnan = cp.divide(WWAUX, ACCH)
     Wnew = cp.nan_to_num(Wnewnan, copy=False, nan=EPSILON)
     Wnewnan = None
@@ -521,14 +509,12 @@ def runnmf(myVcols=None,myVrows=None, mystartrow=None, myendrow=None,mystartcol=
       cp.cuda.Stream.null.synchronize()
       H = Hnew
       W = Wnew
-
     if debug:
       print(f'{rank}:{iterationcount} after sync W, mempool.used_bytes(): {mempool.used_bytes()}\n')
       print(f'{rank}:{iterationcount} after sync W, mempool.total_bytes(): {mempool.total_bytes()}\n')
     if debug:
       print(f'{rank}: after Allgatherv, W.shape {W.shape}\n')
       print(f'{rank}: after Allgatherv, W {W}\n')
-    
       thistime = MPI.Wtime()
       print(f'rank {rank}: kfactor {kfactor}: seed {seed} : iteration {iterationcount} : sync W time: ({thistime - lasttime})\n')
       lasttime = thistime
@@ -537,7 +523,6 @@ def runnmf(myVcols=None,myVrows=None, mystartrow=None, myendrow=None,mystartcol=
       thistime = MPI.Wtime()
       print(f'rank {rank}: kfactor {kfactor}: seed {seed} : iteration {iterationcount} : W transpose time: ({thistime - lasttime})\n')
       lasttime = thistime
-
     if debug:
       print(f'{rank}: after update W\n')
       print(f'{rank}: H: ({H}), H.shape: {H.shape}\n')
@@ -546,8 +531,6 @@ def runnmf(myVcols=None,myVrows=None, mystartrow=None, myendrow=None,mystartcol=
       print(f'{rank}, {iterationcount}: after sync, W: ({W})\n')
       print(f'{rank}, {iterationcount}: after sync, H: ({H})\n')
       print(f'{rank}, {iterationcount}: after sync, WH: ({cp.matmul(W,H)})\n')
-
-
     # check classification for Ht
     # * Computes the maximum value of each row in d_A[] and stores its column index in d_Idx[].
     # * That is, returns d_Idx[i], such that:
@@ -557,7 +540,6 @@ def runnmf(myVcols=None,myVrows=None, mystartrow=None, myendrow=None,mystartcol=
     # * width <= pitch <= maxThreadsPerBlock
     # * In addition, "pitch" must be a multiple of 'memory_alignment'.
     # Ht is M x k, need array M x 1 to store column index
-
     if iterationcount > checkinterval and divmod(iterationcount, checkinterval)[1] == 0:
       classstart = time.process_time() 
       # check KL divergence
@@ -584,8 +566,8 @@ def runnmf(myVcols=None,myVrows=None, mystartrow=None, myendrow=None,mystartcol=
           # instead of indices, should set to EPSILON, like WH_datalk...
           indices = X_datakl > EPSILON
           #antiindices = X_datakl <= EPSILON
-          if debug:
-            print(f'{rank}: antiindices: ({antiindices})\n')
+          #if debug:
+          #  print(f'{rank}: antiindices: ({antiindices})\n')
           # assume everything set to EPSILON...
           WH_datakl[WH_datakl == 0] = EPSILON
           if debug:
@@ -742,7 +724,6 @@ def runnmf(myVcols=None,myVrows=None, mystartrow=None, myendrow=None,mystartcol=
         X_datakl = None
         div = None
         mempool.free_all_blocks()
-
       # else not klerrordiffmax == None:
       else:
         if debug:
@@ -762,7 +743,6 @@ def runnmf(myVcols=None,myVrows=None, mystartrow=None, myendrow=None,mystartcol=
         # *
         # * Returns EXIT_SUCCESS or EXIT_FAILURE.
         # */
-
         if debug:
           if rank == 0:
             print(f'{rank}: checking classification...\n')
@@ -807,24 +787,21 @@ def runnmf(myVcols=None,myVrows=None, mystartrow=None, myendrow=None,mystartcol=
   if debug:
     print(f'{rank}: iterationcount ({iterationcount})\n')
 
-############  add local functions
-#sys.path.append("/expanse/lustre/projects/ddp242/kenneth/pure/nmf-gpu/wrapper")
-#from readgct import NP_GCT
-#sys.path.append("/expanse/lustre/projects/ddp242/kenneth/pure/nmf-gpu/bin")
-#from nmf_mgpu_mpi import runnmf
-###########
+# start of execution
 
+# initialize MPI
 comm = MPI.COMM_WORLD
 rank = comm.rank
 mpi_size = comm.size
-# this would not be true for shared GPU nodes
-# should get available devices, then assign device to task
-print(f'{rank}: cp.cuda.runtime.getDeviceCount() {cp.cuda.runtime.getDeviceCount()}\n')
-print(f'{rank}: before setDevice, cp.cuda.runtime.getDevice() {cp.cuda.runtime.getDevice()}\n')
+
+# on shared GPU nodes, assume the job sees only its device ids,
+# starting from 0, incrementing by one.
+#print(f'{rank}: cp.cuda.runtime.getDeviceCount() {cp.cuda.runtime.getDeviceCount()}\n')
+#print(f'{rank}: before setDevice, cp.cuda.runtime.getDevice() {cp.cuda.runtime.getDevice()}\n')
 for deviceid in range(cp.cuda.runtime.getDeviceCount()):
   if rank == deviceid:
     cp.cuda.runtime.setDevice(deviceid)
-print(f'{rank}: after setDevice, cp.cuda.runtime.getDevice() {cp.cuda.runtime.getDevice()}\n')
+#print(f'{rank}: after setDevice, cp.cuda.runtime.getDevice() {cp.cuda.runtime.getDevice()}\n')
 # https://docs.cupy.dev/en/stable/user_guide/memory.html
 mempool = cp.get_default_memory_pool()
 pinned_mempool = cp.get_default_pinned_memory_pool()
@@ -867,15 +844,12 @@ if debug:
   print(f'mempool.used_bytes(): ({mempool.used_bytes()})\n')
   print(f'mempool.total_bytes(): ({mempool.total_bytes()})\n')
   print(f'mempool.n_free_blocks(): ({mempool.n_free_blocks()})\n')
-
 if args.inputfiletype == 'h5':
   print(f'Sorry, HDF5 format not supported, yet!\n')
   sys.exit(1)
-
 if debug:
   print(f'{rank}: before reading input, mempool.used_bytes(): {mempool.used_bytes()}\n')
   print(f'{rank}: before reading input, mempool.total_bytes(): {mempool.total_bytes()}\n')
-
 if args.inputfiletype in ('gct',):
   # read INPUTFILE as gct file
   print(f'{rank}: reading input file with NP_GCT({args.inputfile})\n')
@@ -901,6 +875,7 @@ elif args.inputfiletype in ('npy',):
       attributes_dict = None
   print(f'{rank}: done reading input file with np.array(np.load({args.inputfile})\n')
 
+# for input matrix, set minimum EPSILON for all elements
 V[V < EPSILON] = EPSILON
 
 if args.klerrordiffmax:
@@ -909,13 +884,15 @@ else:
   klerrordiffmax = None
 
 M = V.shape[1]
-print("Read " + args.inputfile + "  " + str(V.shape))
+#print("Read " + args.inputfile + "  " + str(V.shape))
 
 if debug:
   print('M ({}) from ({})'.format(M,V))
 
-
-k_values = np.arange(mink, maxk +1)
+# depending on whether we are decomposing the work by whole kfactor
+# to each task or decomposing the input matrix across all tasks,
+# create myVcols, mVrows whole/partial inputs
+k_values = np.arange(mink, maxk + 1)
 if args.parastrategy == 'kfactor':
   k_subsets = divide_almost_equally(k_values, mpi_size)
   my_k_indices = k_subsets[rank]
@@ -977,10 +954,9 @@ else:
       myendrow = mystartrow + (rowspertask + 1) - 1
   myrowcount = (myendrow + 1) - mystartrow
   mycolcount = (myendcol + 1) - mystartcol
-  if debug:
-    print(f'{rank}: mystartrow: {mystartrow}, myendrow: {myendrow}, mystartcol: {mystartcol}, myendcol: {myendcol}, myrowcount: {myrowcount}, mycolcount: {mycolcount}, Hsendcountlist: {Hsendcountlist}, Wsendcountlist: {Wsendcountlist}\n')
   # do I need to add the padded rows and columns to the last task?
   # or are the matrix operations okay?
+
 #try:
 if debug:
   thistime = MPI.Wtime()
@@ -988,6 +964,8 @@ if debug:
   lasttime = thistime
   print(f'{rank}: before iterating over k, mempool.used_bytes(): {mempool.used_bytes()}\n')
   print(f'{rank}: before iterating over k, mempool.total_bytes(): {mempool.total_bytes()}\n')
+
+# iterate over kfactors
 for k in my_k_indices:
   kstart = time.process_time() 
   if debug:
@@ -998,6 +976,7 @@ for k in my_k_indices:
   if debug:
     print('start of loop for k={}'.format(k))
   print(f'{rank}: start of loop for k={k}\n')
+  # set up Hsendcountlist and Wsendcountlist for use in AllGatherv
   Hsendcountlist = []
   for tn in range(numtasks):
     if colremainder == 0:
@@ -1018,7 +997,11 @@ for k in my_k_indices:
         Wsendcountlist.append(k * ((rowspertask + 1) - rowpad))
       else:
         Wsendcountlist.append(k * (rowspertask + 1))
+  if debug:
+    print(f'{rank}: mystartrow: {mystartrow}, myendrow: {myendrow}, mystartcol: {mystartcol}, myendcol: {myendcol}, myrowcount: {myrowcount}, mycolcount: {mycolcount}, Hsendcountlist: {Hsendcountlist}, Wsendcountlist: {Wsendcountlist}\n')
+  # allocate the consensus matrix on device
   together_counts = cp.zeros((M,M),dtype=TOGETHERTYPE)
+  # iterate over seeds
   for seed in seed_list:
     start = time.process_time() 
     if debug:
@@ -1026,7 +1009,6 @@ for k in my_k_indices:
       print(f'{rank}: k {k} : seed {seed} start of seed iteration, mempool.used_bytes(): {mempool.used_bytes()}\n')
       print(f'{rank}: k {k} : seed {seed} start of seed iteration, mempool.total_bytes(): {mempool.total_bytes()}\n')
     W,H = runnmf(myVcols=myVcols, myVrows=myVrows, mystartrow=mystartrow, myendrow=myendrow, mystartcol=mystartcol, myendcol=myendcol, Hsendcountlist=Hsendcountlist, Wsendcountlist=Wsendcountlist, kfactor=k, checkinterval=int(args.interval), threshold=int(args.consecutive), maxiterations=int(args.maxiterations), seed=seed, debug=DEBUGVAL, comm=comm, parastrategy=args.parastrategy, klerrordiffmax=klerrordiffmax)
-    
     # print result and write files only if rank == 0, or parastrategy
     # is serial or kfactor
     if rank == 0 or args.parastrategy in ('serial', 'kfactor'):
@@ -1036,6 +1018,7 @@ for k in my_k_indices:
       #sys.exit(1)
       continue
     else:
+      print(f'type(H) not types.NoneType...')
       if args.inputfiletype in ('npy',) and inputattributespath.exists:
         columnnames = attributes_dict['column_names']
         rownames = attributes_dict['row_names']
@@ -1052,9 +1035,11 @@ for k in my_k_indices:
         write_npy(W.get(), f'{args.outputfileprefix}.W.k.{k}.seed.{seed}.npy', rowNames=rownames, colNames=range(k), rowDescrip=rownames, datashape = [N, k])
         write_npy(H.get(), f'{args.outputfileprefix}.H.k.{k}.seed.{seed}.npy', rowNames=range(k), colNames=columnnames, rowDescrip=range(k), datashape = [k, M])
       elif args.outputfiletype == 'h5':
+        print(f'write_h5...')
         write_h5(W.get(), f'{args.outputfileprefix}.W.k.{k}.seed.{seed}', rowNames=rownames, colNames=range(k), rowDescrip=rownames, datashape = [N, k], comm_world=MPI.COMM_WORLD)
         write_h5(H.get(), f'{args.outputfileprefix}.H.k.{k}.seed.{seed}', rowNames=range(k), colNames=columnnames, rowDescrip=range(k), datashape = [k, M], comm_world=MPI.COMM_WORLD)
         write_h5(W.get(), f'{args.outputfileprefix}.W.k.{k}.seed.{seed}', rowNames=rownames, colNames=range(k), rowDescrip=rownames, datashape = [N, k], comm_world=MPI.COMM_WORLD)
+        print(f'after write_h5...')
       elif args.outputfiletype == 'gct':
         H_gct = NP_GCT(data=H.get(), rowNames=list(map(str,range(k))), colNames=columnnames,rowDescrip=list(map(str,range(k))))
         H_gct.write_gct(f'{args.outputfileprefix}.H.k.{k}.seed.{seed}.gct')
@@ -1103,7 +1088,6 @@ for k in my_k_indices:
       i = None
       if debug:
         print(f'{rank}: after scatter_add zeroarray {zeroarray.shape}\n')
-
       #together_counts[i[:, None] == i[None, :]] += 1
       together_counts += zeroarray
       #os.system('date')
@@ -1124,7 +1108,6 @@ for k in my_k_indices:
       print(f'{rank}: end of seed-list for loop\n')
       print(f'{rank}: finished k={k}, seed={seed}\n')
     mempool.free_all_blocks()
-
   myVrows = None
   myVcols = None
   mempool.free_all_blocks()
@@ -1132,7 +1115,6 @@ for k in my_k_indices:
     thistime = MPI.Wtime()
     print(f'rank {rank}: finished all k loops: ({thistime - lasttime})\n')
     lasttime = thistime
-
   if not args.noconsensus:
     consensusstart = time.process_time()
     print(f'{rank}: finished all seed trials for k={k}...\n')
@@ -1150,8 +1132,6 @@ for k in my_k_indices:
         sys.stdout.write('\n')
       else:
         print(f'{rank}: consensus matrix larger than 80x80, not printing.\n')
-  
-  
     if debug:
       print(f'{rank}: copying together_counts from GPU to host tchost\n')
     i_counts = together_counts
@@ -1171,7 +1151,6 @@ for k in my_k_indices:
         columnnames = attributes_dict['column_names']
       else:
         print(f'should never get here!\n')
-        
       if (rank == 0 or args.parastrategy in ('serial', 'kfactor')) and (args.outputfiletype == 'gct'):
         consensus_gct = NP_GCT(data=tchost, rowNames=columnnames, colNames=columnnames)
         consensus_gct.write_gct('{}.consensus.k.{}.gct'.format(args.outputfileprefix,k))
@@ -1185,8 +1164,17 @@ for k in my_k_indices:
           print(f'{rank}: after write_h5(tchost...\n')
       if rank == 0 or args.parastrategy in ('serial', 'kfactor'):
         print(f'{rank}: xxxxxxxxxxxxxxx Elapsed time for k={k}, consensus matrix generation: {time.process_time() - consensusstart}\n');
-   
-  
+      # calculate cophenetic correlation constant
+      # https://medium.com/@codingpilot25/hierarchical-clustering-and-linkage-explained-in-simplest-way-eef1216f30c5
+      # https://docs.scipy.org/doc/scipy/reference/generated/scipy.cluster.hierarchy.linkage.html
+      # 1. make M clusters, each with one point
+      # 2. compute distance matrix MxM, distance from each cluster to every
+      #    other.  Could do just the lower triangle of the symmetric matrix...
+      #    different methods to compute cluster-to-cluster distance, default
+      #    is nearest point (single).
+      # 3. Merge closest two clusters into a new cluster
+      # 4. update distance matrix, using new cluster
+      # repeat 2 and 3 until only one cluster remains
       print(f'{rank}: before linkage\n')
       cophstart = time.process_time()
       # maybe try replacing with fastcluster:
@@ -1218,9 +1206,9 @@ for k in my_k_indices:
       #cophenetic_correlation_distance, cophenetic_distance_matrix = cupyx.scipy.cluster.hierarchy.cophenet(linkage_mat, cdm)
       print('k={}, cophenetic_correlation_distance: ({})'.format(k,cophenetic_correlation_distance))
       print(f'{rank}: cophenetic correlation distance calculatioin: {time.process_time() - cophstart}\n');
+      # do other postprocessing
       postprocessstart = time.process_time()
       if args.postprocess:
-      
         # sort the samples in the consensus matrix for the plot
         # put this back after using npy:
         print(f'{rank}: before DataFrame\n')
