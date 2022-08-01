@@ -1,42 +1,29 @@
-#!/bin/bash
-# Begin LSF Directives
-#BSUB -P TRN008
-#BSUB -W 00:50
-#BSUB -nnodes 1
-#BSUB -alloc_flags gpumps
-#BSUB -J NMF-nondebug
-#BSUB -o NMF.out.%J
-#BSUB -e NMF.err.%J
+#!/bin/sh
+#SBATCH -o scheduler_stdout.txt.%j
+#SBATCH -e scheduler_stderr.txt.%j
+#SBATCH --partition=gpu-shared
+#SBATCH -J nmftest
+#SBATCH -t 01:00:00
+#SBATCH --mail-user=kenneth@sdsc.edu
+#SBATCH --mail-type=begin
+#SBATCH --mail-type=end
+#SBATCH -A csd687
+# Expanse GPU nodes have 4 GPUs, 40 CPUs, 384GB memory
+#SBATCH --gpus=2
+#SBATCH --nodes=1              # Total number of nodes requested (16 cores/node)
+#SBATCH --cpus-per-task=10
+#SBATCH --ntasks-per-node=2             # Total number of mpi tasks requested
+#SBATCH --mem=160G
+#SBATCH --no-requeue
 
-#module purge
-#module load DefApps
-#module load gcc/7.5.0
-#module load cuda/11.0.3
-#module load python
-#source activate /gpfs/wolf/trn008/proj-shared/teammesirov/conda_envs/cupyenv
-#export CUPY_CACHE_DIR="/gpfs/wolf/trn008/scratch/${USER}/.cupy/kernel_cache"
-. /gpfs/wolf/trn008/proj-shared/teammesirov/env.daniel
-
-export WORKINGDIR=/gpfs/wolf/trn008/scratch/kenneth/testdir
-export BIONMFGPUPATH=/gpfs/wolf/trn008/scratch/kenneth/nmf-gpu/kenneth
-export CONSENSUSPY=/gpfs/wolf/trn008/scratch/kenneth/nmf-gpu/kenneth/consensus.py
-#export GPUPROGRAMPATH=${BIONMFGPUPATH}/bin/NMF_mGPU
-export GPUPROGRAMPATH=${BIONMFGPUPATH}/bin/nmf_mgpu.py
-#export PYVENVPATH=/gpfs/wolf/trn008/proj-shared/teammesirov/pyvenv
-#module load gcc
-#module load cuda
-#module load python
-#. ${PYVENVPATH}/bin/activate
-#. ${BIONMFGPUPATH}/env.sh ${CUDA_PATH}
-cd ${WORKINGDIR}
-mkdir jobdir.${LSB_JOBID}
-#export NUMTASKS=4
-#export CUDA_VISIBLE_DEVICES=0,1,2,3
-export NUMTASKS=1
-export CUDA_VISIBLE_DEVICES=0
-echo CUDA_VISIBLE_DEVICES $CUDA_VISIBLE_DEVICES
-nvidia-smi
-date
-#${CONSENSUSPY} --jobdir=${WORKINGDIR}/jobdir.${LSB_JOBID} --inputfile=${WORKINGDIR}/ALL_AML_data.txt --maxk=2 --numtasks=${NUMTASKS}
-${CONSENSUSPY} --gpuprogrampath=${GPUPROGRAMPATH} --jobdir=${WORKINGDIR}/jobdir.${LSB_JOBID} --inputfile=${WORKINGDIR}/ALL_AML_data.gct --mink=2 --maxk=2 --startseed=1 --seeds=10 --consecutive=40 --maxiterations=2000 --outputfileprefix=ALL_AML_data --interval=10 --keepintermediatefiles --numtasks=${NUMTASKS} --nocleanup --keepintermediatefiles
-date
+echo Job starting at `date`
+cd /expanse/lustre/projects/ddp242/kenneth/pure
+export JOBDIR=`pwd`/jobdir.${SLURM_JOBID}
+echo Running ALL_AML_data, with gct input, h5 output:
+/expanse/projects/mesirovlab/genepattern/modules/nmf-gpu-v1/runitprod.bash  --parastrategy=inputmatrix --jobdir=${JOBDIR} --inputfile=/expanse/projects/mesirovlab/genepattern/modules/nmf-gpu-v1/ALL_AML_data.gct --mink=2 --maxk=3 --startseed=1 --seeds=100 --consecutive=40 --maxiterations=2000 --outputfileprefix=ALL_AML_data --interval=10 --keepintermediatefiles --numtasks=${SLURM_NTASKS} --inputfiletype=gct --klerrordiffmax=5.0 --outputfiletype=h5
+echo Running ALL_AML_data, with gct input, h5 output, one-shot:
+/expanse/projects/mesirovlab/genepattern/modules/nmf-gpu-v1/runitprod.bash --noconsensus --parastrategy=inputmatrix --jobdir=${JOBDIR} --inputfile=/expanse/projects/mesirovlab/genepattern/modules/nmf-gpu-v1/ALL_AML_data.gct --mink=2 --maxk=1 --startseed=5 --seeds=1 --consecutive=40 --maxiterations=2000 --outputfileprefix=ALL_AML_data --interval=10 --keepintermediatefiles --numtasks=${SLURM_NTASKS} --inputfiletype=gct --klerrordiffmax=5.0 --outputfiletype=h5
+echo Running ALL_AML_data, with gct input, gct output:
+/expanse/lustre/projects/ddp242/kenneth/pure/runitprod.bash --parastrategy=inputmatrix --jobdir=${JOBDIR} --inputfile=/expanse/projects/mesirovlab/genepattern/modules/nmf-gpu-v1/ALL_AML_data.gct --mink=2 --maxk=3 --startseed=1 --seeds=100 --consecutive=40 --maxiterations=2000 --outputfileprefix=ALL_AML_data --interval=10 --keepintermediatefiles --numtasks=${SLURM_NTASKS} --inputfiletype=gct --klerrordiffmax=5.0 --outputfiletype=gct
+#/expanse/projects/mesirovlab/genepattern/modules/nmf-gpu-v1/runitprod.bash  --parastrategy=inputmatrix --jobdir=${JOBDIR} --inputfile=/expanse/lustre/projects/ddp242/kenneth/pure/aks_gist_tumor_v2.npy --mink=2 --maxk=3 --startseed=1 --seeds=100 --consecutive=40 --maxiterations=2000 --outputfileprefix=ALL_AML_data --interval=10 --keepintermediatefiles --numtasks=${SLURM_NTASKS} --inputfiletype=npy --klerrordiffmax=5.0 --outputfiletype=h5
+echo Job done at `date`
