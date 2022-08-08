@@ -88,6 +88,10 @@ EPSILON = cp.finfo(OTHERTYPE).eps
 W = None
 H = None
 
+# https://docs.cupy.dev/en/stable/user_guide/kernel.html
+# kerneldiv = cp.ElementwiseKernel(
+#   'float32 x, float32 y', 'float32 z', 'z = x / y', 'kerneldiv')
+
 # Class for reading and writing GCT files
 class NP_GCT:
   # #1.2
@@ -103,7 +107,8 @@ class NP_GCT:
       count=0
       f.readline() ##1.2
       dims = f.readline().split('\t') # rows cols
-      print(f'(rows, cols) {dims}\n')
+      if debug:
+        print(f'(rows, cols) {dims}\n')
       #data = np.genfromtxt(fname='testfile', dtype=np.half, delimiter="\t", filling_values=0, comments='#####')  # change filling_valuesas req'd to fill in missing values
       #data = np.loadtxt(fname='testfile', dtype=np.half, delimiter="\t")  # change filling_valuesas req'd to fill in missing values
       numCols = int(dims[1])
@@ -121,7 +126,8 @@ class NP_GCT:
       self.rowdescriptions = [None] * int(dims[0])
 
       data = np.empty((int(dims[0]), int(dims[1])), dtype=OTHERTYPE)
-      print(f'before reading lines from input file\n')
+      if debug:
+         print(f'before reading lines from input file\n')
       while True:
           # Get next line from file
           line = f.readline()
@@ -148,7 +154,7 @@ class NP_GCT:
       self.rownames=rowNames
       self.rowdescriptions=rowDescrip
       self.columnnames=colNames
-    print("Loaded matrix of shape ", self.data.shape)
+    print(f'{rank}: Loaded matrix of shape {self.data.shape}\n')
     
   def write_gct(self, file_path):
     """
@@ -852,9 +858,11 @@ if debug:
   print(f'{rank}: before reading input, mempool.total_bytes(): {mempool.total_bytes()}\n')
 if args.inputfiletype in ('gct',):
   # read INPUTFILE as gct file
-  print(f'{rank}: reading input file with NP_GCT({args.inputfile})\n')
+  if debug:
+    print(f'{rank}: reading input file with NP_GCT({args.inputfile})\n')
   gct_data = NP_GCT(args.inputfile)
-  print(f'{rank}: done reading input file with NP_GCT({args.inputfile})\n')
+  if debug:
+    print(f'{rank}: done reading input file with NP_GCT({args.inputfile})\n')
   V = gct_data.data
 elif args.inputfiletype in ('h5',):
   print(f'HDF5 input format not supported, yet!\n')
@@ -873,7 +881,8 @@ elif args.inputfiletype in ('npy',):
       FO.close()
     else:
       attributes_dict = None
-  print(f'{rank}: done reading input file with np.array(np.load({args.inputfile})\n')
+  if debug:
+    print(f'{rank}: done reading input file with np.array(np.load({args.inputfile})\n')
 
 # for input matrix, set minimum EPSILON for all elements
 V[V < EPSILON] = EPSILON
@@ -957,335 +966,352 @@ else:
   # do I need to add the padded rows and columns to the last task?
   # or are the matrix operations okay?
 
-#try:
-if debug:
-  thistime = MPI.Wtime()
-  print(f'from beginning to start of for k loop: ({thistime - lasttime})\n')
-  lasttime = thistime
-  print(f'{rank}: before iterating over k, mempool.used_bytes(): {mempool.used_bytes()}\n')
-  print(f'{rank}: before iterating over k, mempool.total_bytes(): {mempool.total_bytes()}\n')
-
-# iterate over kfactors
-for k in my_k_indices:
-  kstart = time.process_time() 
-  if debug:
-    print(f'{rank}: k {k} start of k iteration, mempool.used_bytes(): {mempool.used_bytes()}\n')
-    print(f'{rank}: k {k} start of k iteration, mempool.total_bytes(): {mempool.total_bytes()}\n')
-  myVcols = cp.array(V[:,mystartcol:myendcol + 1])
-  myVrows = cp.array(V[mystartrow:myendrow + 1,:])
-  if debug:
-    print('start of loop for k={}'.format(k))
-  print(f'{rank}: start of loop for k={k}\n')
-  # set up Hsendcountlist and Wsendcountlist for use in AllGatherv
-  Hsendcountlist = []
-  for tn in range(numtasks):
-    if colremainder == 0:
-      Hsendcountlist.append(k * colspertask)
-    else:
-      if tn == numtasks - 1:
-        #last task:
-        Hsendcountlist.append(k * ((colspertask + 1) - colpad))
-      else:
-        Hsendcountlist.append(k * (colspertask + 1))
-  Wsendcountlist = []
-  for tn in range(numtasks):
-    if rowremainder == 0:
-      Wsendcountlist.append(k * rowspertask)
-    else:
-      if tn == numtasks - 1:
-        #last task:
-        Wsendcountlist.append(k * ((rowspertask + 1) - rowpad))
-      else:
-        Wsendcountlist.append(k * (rowspertask + 1))
-  if debug:
-    print(f'{rank}: mystartrow: {mystartrow}, myendrow: {myendrow}, mystartcol: {mystartcol}, myendcol: {myendcol}, myrowcount: {myrowcount}, mycolcount: {mycolcount}, Hsendcountlist: {Hsendcountlist}, Wsendcountlist: {Wsendcountlist}\n')
-  # allocate the consensus matrix on device
-  together_counts = cp.zeros((M,M),dtype=TOGETHERTYPE)
-  # iterate over seeds
-  for seed in seed_list:
-    start = time.process_time() 
-    if debug:
-      print(f'{rank}: doing k={k}, seed={seed}\n')
-      print(f'{rank}: k {k} : seed {seed} start of seed iteration, mempool.used_bytes(): {mempool.used_bytes()}\n')
-      print(f'{rank}: k {k} : seed {seed} start of seed iteration, mempool.total_bytes(): {mempool.total_bytes()}\n')
-    W,H = runnmf(myVcols=myVcols, myVrows=myVrows, mystartrow=mystartrow, myendrow=myendrow, mystartcol=mystartcol, myendcol=myendcol, Hsendcountlist=Hsendcountlist, Wsendcountlist=Wsendcountlist, kfactor=k, checkinterval=int(args.interval), threshold=int(args.consecutive), maxiterations=int(args.maxiterations), seed=seed, debug=DEBUGVAL, comm=comm, parastrategy=args.parastrategy, klerrordiffmax=klerrordiffmax)
-    # print result and write files only if rank == 0, or parastrategy
-    # is serial or kfactor
-    if rank == 0 or args.parastrategy in ('serial', 'kfactor'):
-      print(f'{rank}: xxxxxxxxxxxxxxx Elapsed time for k={k} seed={seed} : {time.process_time() - start}\n');
-    if type(H) == types.NoneType:
-      print(f'failed to get H ({H}), continuing...\n')
-      #sys.exit(1)
-      continue
-    else:
-      print(f'type(H) not types.NoneType...')
-      if args.inputfiletype in ('npy',) and inputattributespath.exists:
-        columnnames = attributes_dict['column_names']
-        rownames = attributes_dict['row_names']
-        rowdescriptions = attributes_dict['row_descriptions']
-        Wdatashape = [N,k]
-        Hdatashape = [k,M]
-      elif args.inputfiletype in ('gct',):
-        columnnames = gct_data.columnnames
-        rownames = gct_data.rownames
-        rowdescriptions = gct_data.rowdescriptions
-        Wdatashape = [N,k]
-        Hdatashape = [k,M]
-      if args.outputfiletype == 'npy':
-        write_npy(W.get(), f'{args.outputfileprefix}.W.k.{k}.seed.{seed}.npy', rowNames=rownames, colNames=range(k), rowDescrip=rownames, datashape = [N, k])
-        write_npy(H.get(), f'{args.outputfileprefix}.H.k.{k}.seed.{seed}.npy', rowNames=range(k), colNames=columnnames, rowDescrip=range(k), datashape = [k, M])
-      elif args.outputfiletype == 'h5':
-        print(f'write_h5...')
-        write_h5(W.get(), f'{args.outputfileprefix}.W.k.{k}.seed.{seed}', rowNames=rownames, colNames=range(k), rowDescrip=rownames, datashape = [N, k], comm_world=MPI.COMM_WORLD)
-        write_h5(H.get(), f'{args.outputfileprefix}.H.k.{k}.seed.{seed}', rowNames=range(k), colNames=columnnames, rowDescrip=range(k), datashape = [k, M], comm_world=MPI.COMM_WORLD)
-        write_h5(W.get(), f'{args.outputfileprefix}.W.k.{k}.seed.{seed}', rowNames=rownames, colNames=range(k), rowDescrip=rownames, datashape = [N, k], comm_world=MPI.COMM_WORLD)
-        print(f'after write_h5...')
-      elif args.outputfiletype == 'gct':
-        H_gct = NP_GCT(data=H.get(), rowNames=list(map(str,range(k))), colNames=columnnames,rowDescrip=list(map(str,range(k))))
-        H_gct.write_gct(f'{args.outputfileprefix}.H.k.{k}.seed.{seed}.gct')
-        W_gct = NP_GCT(data=W.get(), rowNames=rownames, colNames=list(map(str,range(k))),rowDescrip=rownames)
-        W_gct.write_gct(f'{args.outputfileprefix}.W.k.{k}.seed.{seed}.gct')
-      else:
-        print(f'Sorry, not writing W and H, unless --outputfiletype=npy or h5 or gct.\n')
-      togetherstart = time.process_time()
-      if debug:
-        print(f'{rank}: before cp.asnumpy\n')
-      i = cp.argmax(H, axis=0).get()
-      if debug:
-        print(f'{rank}: after cp.asnumpy\n')
-      # uses lots of host memory:
-      #together_counts[i[:, None] == i[None, :]] += 1
-      H = None
-      W = None
-      mempool.free_all_blocks()
-      if debug:
-        print(f'{rank}: before updating together_counts, mempool.used_bytes(): {mempool.used_bytes()}\n')
-        print(f'{rank}: before updating together_counts, mempool.total_bytes(): {mempool.total_bytes()}\n')
-      # better way would be to have each task update a portion
-      # of together_counts, then collect.  For now do it the brutal way.
-      #together_counts[i[:, None] == i[None, :]] += 1
-      # MxM together_counts.  Do slices at a time instead of
-      # single elements
-      # rowpad, colpad is the amount in last iteration
-      #    myrowcount = (myendrow + 1) - mystartrow
-      #    mycolcount = (myendcol + 1) - mystartcol
-      #    myVcols = cp.array(V[:,mystartcol:myendcol + 1])
-      #    myVrows = cp.array(V[mystartrow:myendrow + 1,:])
-      togethermask = i[:, None] == i[None, :]
-      if debug:
-        print(f'{rank}: togethermask.shape {togethermask.shape}\n')
-      togethermask = cp.array(togethermask)
-      if debug:
-        print(f'{rank}: on GPU, togethermask.shape {togethermask.shape}\n')
-      # out of GPU memory:
-      #together_counts[togethermask] += 1
-      #
-      # out of GPU memory:
-      #zeroarray = cp.zeros((M,M),dtype=TOGETHERTYPE)
-      #cupyx.scatter_add(zeroarray,togethermask,1)
-      zeroarray = cp.array(togethermask, dtype=TOGETHERTYPE)
-      togethermask = None
-      i = None
-      if debug:
-        print(f'{rank}: after scatter_add zeroarray {zeroarray.shape}\n')
-      #together_counts[i[:, None] == i[None, :]] += 1
-      together_counts += zeroarray
-      #os.system('date')
-      # https://numpy.org/doc/stable/reference/arrays.nditer.html#arrays-nditer
-      # no  cp.nditer
-      #with cp.nditer(together_counts, flags=['multi_index'], op_flags=['readwrite']) as it:
-      #  for x in it:
-      #    if i[it.multi_index] == i[it.multi_index[1], it.multi_index[0]]:
-      #      x = x + 1
-      if debug:
-        print(f'{rank}: after fast together_counts\n')
-      if rank == 0 or args.parastrategy in ('serial', 'kfactor'):
-        print(f'{rank}: xxxxxxxxxxxxxxx Elapsed time together_counts update for k={k} seed={seed} : {time.process_time() - togetherstart}\n');
-    W = None
-    H = None
-    WH = None
-    if debug:
-      print(f'{rank}: end of seed-list for loop\n')
-      print(f'{rank}: finished k={k}, seed={seed}\n')
-    mempool.free_all_blocks()
-  myVrows = None
-  myVcols = None
-  mempool.free_all_blocks()
+try:
   if debug:
     thistime = MPI.Wtime()
-    print(f'rank {rank}: finished all k loops: ({thistime - lasttime})\n')
+    print(f'from beginning to start of for k loop: ({thistime - lasttime})\n')
     lasttime = thistime
-  if not args.noconsensus:
-    consensusstart = time.process_time()
-    print(f'{rank}: finished all seed trials for k={k}...\n')
-    if rank == 0 or args.parastrategy in ('serial', 'kfactor'):
-      # for MPI scatter/gather
-      numpy.set_printoptions(threshold=M*M)
-      if M <= 80:
-        print('consensus matrix shape ({})'.format(together_counts.shape))
-        #print(f'together_counts: ({together_counts})\n')
-        sys.stdout.write('consensus matrix:')
-        for i_index in range(M):
-          sys.stdout.write('\n')
-          for j_index in range(M):
-            sys.stdout.write('{:>2.0f}'.format(together_counts[i_index, j_index]/10))
-        sys.stdout.write('\n')
-      else:
-        print(f'{rank}: consensus matrix larger than 80x80, not printing.\n')
+    print(f'{rank}: before iterating over k, mempool.used_bytes(): {mempool.used_bytes()}\n')
+    print(f'{rank}: before iterating over k, mempool.total_bytes(): {mempool.total_bytes()}\n')
+  
+  # iterate over kfactors
+  kdirs = []
+  for k in my_k_indices:
+    kdirs.append('k.{}'.format(k))
+    os.chdir(JOBDIR)
+    os.makedirs(f'k.{k}', exist_ok=True)
+    kstart = time.process_time() 
     if debug:
-      print(f'{rank}: copying together_counts from GPU to host tchost\n')
-    i_counts = together_counts
-    tchost = together_counts.get()
+      print(f'{rank}: k {k} start of k iteration, mempool.used_bytes(): {mempool.used_bytes()}\n')
+      print(f'{rank}: k {k} start of k iteration, mempool.total_bytes(): {mempool.total_bytes()}\n')
+    myVcols = cp.array(V[:,mystartcol:myendcol + 1])
+    myVrows = cp.array(V[mystartrow:myendrow + 1,:])
     if debug:
-      print(f'{rank}: after copying together_counts from GPU to host tchost\n')
-    if args.inputfiletype in ('gct','h5') or attributes_dict != None:
-      # put this back in after done with npy inputfile
-      if args.inputfiletype == 'gct':
-        columnnames = gct_data.columnnames
-      elif args.inputfiletype == 'h5':
-        # h5_data.attributes dset.attrs
-        columnnames = h5_data.dset.attrs['column_names']
-      elif attributes_dict != None:
-        if debug:
-          print(f'{rank}: using attributes_dict ({attributes_dict})\n')
-        columnnames = attributes_dict['column_names']
+      print(f'{rank}: start of loop for k={k}\n')
+    # set up Hsendcountlist and Wsendcountlist for use in AllGatherv
+    Hsendcountlist = []
+    for tn in range(numtasks):
+      if colremainder == 0:
+        Hsendcountlist.append(k * colspertask)
       else:
-        print(f'should never get here!\n')
-      if (rank == 0 or args.parastrategy in ('serial', 'kfactor')) and (args.outputfiletype == 'gct'):
-        consensus_gct = NP_GCT(data=tchost, rowNames=columnnames, colNames=columnnames)
-        consensus_gct.write_gct('{}.consensus.k.{}.gct'.format(args.outputfileprefix,k))
-      elif (rank == 0 or args.parastrategy in ('serial', 'kfactor')) and (args.outputfiletype == 'npy'):
-        write_npy(tchost, f'{args.outputfileprefix}.consensus.k.{k}.npy', rowNames=columnnames, colNames=columnnames, rowDescrip=columnnames, datashape = [M, M])
-      elif args.outputfiletype == 'h5':
-        if debug:
-          print(f'{rank}: before write_h5(tchost...\n')
-        write_h5(tchost, outputfileprefix=f'{args.outputfileprefix}.consensus.k.{k}', rowNames=columnnames, colNames=columnnames, rowDescrip=columnnames, datashape = [M, M], comm_world=MPI.COMM_WORLD)
-        if debug:
-          print(f'{rank}: after write_h5(tchost...\n')
+        if tn == numtasks - 1:
+          #last task:
+          Hsendcountlist.append(k * ((colspertask + 1) - colpad))
+        else:
+          Hsendcountlist.append(k * (colspertask + 1))
+    Wsendcountlist = []
+    for tn in range(numtasks):
+      if rowremainder == 0:
+        Wsendcountlist.append(k * rowspertask)
+      else:
+        if tn == numtasks - 1:
+          #last task:
+          Wsendcountlist.append(k * ((rowspertask + 1) - rowpad))
+        else:
+          Wsendcountlist.append(k * (rowspertask + 1))
+    if debug:
+      print(f'{rank}: mystartrow: {mystartrow}, myendrow: {myendrow}, mystartcol: {mystartcol}, myendcol: {myendcol}, myrowcount: {myrowcount}, mycolcount: {mycolcount}, Hsendcountlist: {Hsendcountlist}, Wsendcountlist: {Wsendcountlist}\n')
+    # allocate the consensus matrix on device
+    together_counts = cp.zeros((M,M),dtype=TOGETHERTYPE)
+    # iterate over seeds
+    for seed in seed_list:
+      start = time.process_time() 
+      os.chdir(JOBDIR)
+      os.makedirs(f'k.{k}/seed.{seed}', exist_ok=True)
+      os.chdir(f'k.{k}/seed.{seed}')
+      if debug:
+        print(f'{rank}: doing k={k}, seed={seed}\n')
+        print(f'{rank}: k {k} : seed {seed} start of seed iteration, mempool.used_bytes(): {mempool.used_bytes()}\n')
+        print(f'{rank}: k {k} : seed {seed} start of seed iteration, mempool.total_bytes(): {mempool.total_bytes()}\n')
+      W,H = runnmf(myVcols=myVcols, myVrows=myVrows, mystartrow=mystartrow, myendrow=myendrow, mystartcol=mystartcol, myendcol=myendcol, Hsendcountlist=Hsendcountlist, Wsendcountlist=Wsendcountlist, kfactor=k, checkinterval=int(args.interval), threshold=int(args.consecutive), maxiterations=int(args.maxiterations), seed=seed, debug=DEBUGVAL, comm=comm, parastrategy=args.parastrategy, klerrordiffmax=klerrordiffmax)
+      # print result and write files only if rank == 0, or parastrategy
+      # is serial or kfactor
       if rank == 0 or args.parastrategy in ('serial', 'kfactor'):
-        print(f'{rank}: xxxxxxxxxxxxxxx Elapsed time for k={k}, consensus matrix generation: {time.process_time() - consensusstart}\n');
-      # calculate cophenetic correlation constant
-      # https://medium.com/@codingpilot25/hierarchical-clustering-and-linkage-explained-in-simplest-way-eef1216f30c5
-      # https://docs.scipy.org/doc/scipy/reference/generated/scipy.cluster.hierarchy.linkage.html
-      # 1. make M clusters, each with one point
-      # 2. compute distance matrix MxM, distance from each cluster to every
-      #    other.  Could do just the lower triangle of the symmetric matrix...
-      #    different methods to compute cluster-to-cluster distance, default
-      #    is nearest point (single).
-      # 3. Merge closest two clusters into a new cluster
-      # 4. update distance matrix, using new cluster
-      # repeat 2 and 3 until only one cluster remains
-      print(f'{rank}: before linkage\n')
-      cophstart = time.process_time()
-      # maybe try replacing with fastcluster:
-      # https://pypi.org/project/fastcluster/
-      #linkage_mat = scipy.cluster.hierarchy.linkage(tchost)
-      #linkage_mat = cupyx.scipy.cluster.hierarchy.linkage(together_counts)
-      linkage_mat = fastcluster.linkage(tchost)
-      linkageend = time.process_time()
-      print(f'{rank}: linkage time: {linkageend - cophstart}\n')
-      print(f'{rank}: before pdist\n')
-      cdm = scipy.spatial.distance.pdist(tchost)
-      #cdm = cupyx.scipy.spatial.distance.pdist(together_counts)
-      #tchostfloat = tchost.astype(NUMPYTYPE,)
-      #cdm = fastdist.matrix_pairwise_distance(tchostfloat, fastdist.euclidean, "euclidean")
-      #cdm = cdm.transpose()
-      print(f'{rank}: cdm.shape: {cdm.shape}\n')
-      # cdmhost = cdm.get()
-      pdistend = time.process_time()
-      print(f'{rank}: pdist time: {pdistend - linkageend}\n')
-      # coming soon: https://github.com/cupy/cupy/issues/5946
-      #cdm = cupyx.scipy.spatial.distance.pdist(together_counts)
-      # maybe use fastdist for now:
-      # https://pypi.org/project/fastdist/
-      print(f'{rank}: before cophenet\n')
-      cophenetic_correlation_distance, cophenetic_distance_matrix = scipy.cluster.hierarchy.cophenet(linkage_mat, cdm)
-      #cophenetic_correlation_distance, cophenetic_distance_matrix = scipy.cluster.hierarchy.cophenet(linkage_mat, cdmhost)
-      cophend = time.process_time()
-      print(f'{rank}: cophenet time: {cophend - pdistend}\n')
-      #cophenetic_correlation_distance, cophenetic_distance_matrix = cupyx.scipy.cluster.hierarchy.cophenet(linkage_mat, cdm)
-      print('k={}, cophenetic_correlation_distance: ({})'.format(k,cophenetic_correlation_distance))
-      print(f'{rank}: cophenetic correlation distance calculatioin: {time.process_time() - cophstart}\n');
-      # do other postprocessing
-      postprocessstart = time.process_time()
-      if args.postprocess:
-        # sort the samples in the consensus matrix for the plot
-        # put this back after using npy:
-        print(f'{rank}: before DataFrame\n')
-        countsdf=pd.DataFrame(tchost, columns=columnnames, index=columnnames)
-        print(f'{rank}: before KMeans fit\n')
-        kmeans = cluster.KMeans(n_clusters=2).fit(countsdf)
-        labels = kmeans.labels_
-    
-        namedf = pd.DataFrame(labels, index = columnnames)
-        sortedNames = namedf.sort_values(0).index
-    
-        countsdf = countsdf[sortedNames]
-        countsdf = countsdf.reindex(sortedNames)
-        print(f'{rank}: before to_numpy\n')
-        sorted_i_counts = countsdf.to_numpy()
-        if rank == 0 and args.outputfiletype == 'gct':
-          print(f'{rank}: before sc = NP_GCT\n')
-          sc = NP_GCT(data=sorted_i_counts, rowNames=sortedNames, colNames=sortedNames )
-          print(f'{rank}: before sc.write_gct\n')
-          sc.write_gct('{}.consensus.k.{}.sorted.gct'.format(args.outputfileprefix,k))
-        elif rank == 0 and args.outputfiletype == 'npy':
-          print(f'{rank}: before sc.write_npy\n')
-          write_npy(sorted_i_counts, f'{args.outputfileprefix}.consensus.k.{k}.sorted.npy', rowNames=sortedNames, colNames=sortedNames, rowDescrip=sortedNames, datashape = [M, M])
+        if debug:
+          print(f'{rank}: xxxxxxxxxxxxxxx Elapsed time for k={k} seed={seed} : {time.process_time() - start}\n');
+      if type(H) == types.NoneType:
+        print(f'failed to get H ({H}), continuing...\n')
+        #sys.exit(1)
+        continue
+      else:
+        #print(f'type(H) not types.NoneType...')
+        if args.inputfiletype in ('npy',) and inputattributespath.exists:
+          columnnames = attributes_dict['column_names']
+          rownames = attributes_dict['row_names']
+          rowdescriptions = attributes_dict['row_descriptions']
+          Wdatashape = [N,k]
+          Hdatashape = [k,M]
+        elif args.inputfiletype in ('gct',):
+          columnnames = gct_data.columnnames
+          rownames = gct_data.rownames
+          rowdescriptions = gct_data.rowdescriptions
+          Wdatashape = [N,k]
+          Hdatashape = [k,M]
+        if args.outputfiletype == 'npy':
+          write_npy(W.get(), f'{args.outputfileprefix}.W.k.{k}.seed.{seed}.npy', rowNames=rownames, colNames=range(k), rowDescrip=rownames, datashape = [N, k])
+          write_npy(H.get(), f'{args.outputfileprefix}.H.k.{k}.seed.{seed}.npy', rowNames=range(k), colNames=columnnames, rowDescrip=range(k), datashape = [k, M])
         elif args.outputfiletype == 'h5':
-          write_h5(sorted_i_counts, f'{args.outputfileprefix}.consensus.k.{k}.sorted', rowNames=sortedNames, colNames=sortedNames, rowDescrip=sortedNames, datashape = [M, M], comm_world=MPI.COMM_WORLD)
-    
+          if debug:
+            print(f'write_h5...')
+          write_h5(W.get(), f'{args.outputfileprefix}.W.k.{k}.seed.{seed}', rowNames=rownames, colNames=range(k), rowDescrip=rownames, datashape = [N, k], comm_world=MPI.COMM_WORLD)
+          write_h5(H.get(), f'{args.outputfileprefix}.H.k.{k}.seed.{seed}', rowNames=range(k), colNames=columnnames, rowDescrip=range(k), datashape = [k, M], comm_world=MPI.COMM_WORLD)
+          write_h5(W.get(), f'{args.outputfileprefix}.W.k.{k}.seed.{seed}', rowNames=rownames, colNames=range(k), rowDescrip=rownames, datashape = [N, k], comm_world=MPI.COMM_WORLD)
+          if debug:
+            print(f'after write_h5...')
+        elif args.outputfiletype == 'gct':
+          H_gct = NP_GCT(data=H.get(), rowNames=list(map(str,range(k))), colNames=columnnames,rowDescrip=list(map(str,range(k))))
+          H_gct.write_gct(f'{args.outputfileprefix}.H.k.{k}.seed.{seed}.gct')
+          W_gct = NP_GCT(data=W.get(), rowNames=rownames, colNames=list(map(str,range(k))),rowDescrip=rownames)
+          W_gct.write_gct(f'{args.outputfileprefix}.W.k.{k}.seed.{seed}.gct')
+        else:
+          print(f'Sorry, not writing W and H, unless --outputfiletype=npy or h5 or gct.\n')
+        togetherstart = time.process_time()
+        if debug:
+          print(f'{rank}: before cp.asnumpy\n')
+        i = cp.argmax(H, axis=0).get()
+        if debug:
+          print(f'{rank}: after cp.asnumpy\n')
+        # uses lots of host memory:
+        #together_counts[i[:, None] == i[None, :]] += 1
+        H = None
+        W = None
+        mempool.free_all_blocks()
+        if debug:
+          print(f'{rank}: before updating together_counts, mempool.used_bytes(): {mempool.used_bytes()}\n')
+          print(f'{rank}: before updating together_counts, mempool.total_bytes(): {mempool.total_bytes()}\n')
+        # better way would be to have each task update a portion
+        # of together_counts, then collect.  For now do it the brutal way.
+        #together_counts[i[:, None] == i[None, :]] += 1
+        # MxM together_counts.  Do slices at a time instead of
+        # single elements
+        # rowpad, colpad is the amount in last iteration
+        #    myrowcount = (myendrow + 1) - mystartrow
+        #    mycolcount = (myendcol + 1) - mystartcol
+        #    myVcols = cp.array(V[:,mystartcol:myendcol + 1])
+        #    myVrows = cp.array(V[mystartrow:myendrow + 1,:])
+        togethermask = i[:, None] == i[None, :]
+        if debug:
+          print(f'{rank}: togethermask.shape {togethermask.shape}\n')
+        togethermask = cp.array(togethermask)
+        if debug:
+          print(f'{rank}: on GPU, togethermask.shape {togethermask.shape}\n')
+        # out of GPU memory:
+        #together_counts[togethermask] += 1
+        #
+        # out of GPU memory:
+        #zeroarray = cp.zeros((M,M),dtype=TOGETHERTYPE)
+        #cupyx.scatter_add(zeroarray,togethermask,1)
+        zeroarray = cp.array(togethermask, dtype=TOGETHERTYPE)
+        togethermask = None
+        i = None
+        if debug:
+          print(f'{rank}: after scatter_add zeroarray {zeroarray.shape}\n')
+        #together_counts[i[:, None] == i[None, :]] += 1
+        together_counts += zeroarray
+        #os.system('date')
+        # https://numpy.org/doc/stable/reference/arrays.nditer.html#arrays-nditer
+        # no  cp.nditer
+        #with cp.nditer(together_counts, flags=['multi_index'], op_flags=['readwrite']) as it:
+        #  for x in it:
+        #    if i[it.multi_index] == i[it.multi_index[1], it.multi_index[0]]:
+        #      x = x + 1
+        if debug:
+          print(f'{rank}: after fast together_counts\n')
         if rank == 0 or args.parastrategy in ('serial', 'kfactor'):
-          print(f'{rank}: before subplots\n')
-          fig, ax = plt.subplots()
-          fig.set_figwidth(8)
-          fig.set_figheight(8)
-          print(f'{rank}: before imshow\n')
-          im = plt.imshow(sorted_i_counts, cmap='bwr', interpolation='nearest')
-      
-          ax.set_xticks(np.arange(len(sortedNames)), labels=sortedNames)
-          ax.set_yticks(np.arange(len(sortedNames)), labels=sortedNames)
-      
-          # Rotate the tick labels and set their alignment.
-          plt.setp(ax.get_xticklabels(), rotation=45, ha="right",  rotation_mode="anchor")
-      
-          ax.set_title("Consensus Matrix, k="+str(k))
-          fig.tight_layout()
-      
-          plt.savefig('{}.consensus.k.{}.pdf'.format(args.outputfileprefix,k))  
-          with open('{}.cophenetic.txt'.format(args.outputfileprefix), 'w') as file:
-              file.write(str(k) + "\t" + str(cophenetic_correlation_distance) + "\n")
-      if rank == 0 or args.parastrategy in ('serial', 'kfactor'):
-        print(f'{rank}: xxxxxxxxxxxxxxx Elapsed time for k={k}, all postprocessing : {time.process_time() - postprocessstart}\n');
-    if rank == 0 or args.parastrategy in ('serial', 'kfactor'):
-      print(f'{rank}: xxxxxxxxxxxxxxx Elapsed time for k={k} : {time.process_time() - kstart}\n');
+          if debug:
+            print(f'{rank}: xxxxxxxxxxxxxxx Elapsed time together_counts update for k={k} seed={seed} : {time.process_time() - togetherstart}\n');
+      W = None
+      H = None
+      WH = None
+      if debug:
+        print(f'{rank}: end of seed-list for loop\n')
+        print(f'{rank}: finished k={k}, seed={seed}\n')
+      mempool.free_all_blocks()
+    myVrows = None
+    myVcols = None
+    mempool.free_all_blocks()
     if debug:
       thistime = MPI.Wtime()
-      print(f'rank {rank}: finished consensus matrix: ({thistime - lasttime})\n')
+      print(f'rank {rank}: finished all k loops: ({thistime - lasttime})\n')
       lasttime = thistime
-    i_counts = None
-    together_counts = None
-    mempool.free_all_blocks()
+    if not args.noconsensus:
+      consensusstart = time.process_time()
+      print(f'{rank}: finished all seed trials for k={k}...\n')
+      if rank == 0 or args.parastrategy in ('serial', 'kfactor'):
+        # for MPI scatter/gather
+        numpy.set_printoptions(threshold=M*M)
+        if M <= 80:
+          print('consensus matrix shape ({})'.format(together_counts.shape))
+          #print(f'together_counts: ({together_counts})\n')
+          sys.stdout.write('consensus matrix:')
+          for i_index in range(M):
+            sys.stdout.write('\n')
+            for j_index in range(M):
+              sys.stdout.write('{:>2.0f}'.format(together_counts[i_index, j_index]/10))
+          sys.stdout.write('\n')
+        else:
+          print(f'{rank}: consensus matrix larger than 80x80, not printing.\n')
+      if debug:
+        print(f'{rank}: copying together_counts from GPU to host tchost\n')
+      i_counts = together_counts
+      tchost = together_counts.get()
+      if debug:
+        print(f'{rank}: after copying together_counts from GPU to host tchost\n')
+      if args.inputfiletype in ('gct','h5') or attributes_dict != None:
+        # put this back in after done with npy inputfile
+        if args.inputfiletype == 'gct':
+          columnnames = gct_data.columnnames
+        elif args.inputfiletype == 'h5':
+          # h5_data.attributes dset.attrs
+          columnnames = h5_data.dset.attrs['column_names']
+        elif attributes_dict != None:
+          if debug:
+            print(f'{rank}: using attributes_dict ({attributes_dict})\n')
+          columnnames = attributes_dict['column_names']
+        else:
+          print(f'should never get here!\n')
+        if (rank == 0 or args.parastrategy in ('serial', 'kfactor')) and (args.outputfiletype == 'gct'):
+          consensus_gct = NP_GCT(data=tchost, rowNames=columnnames, colNames=columnnames)
+          consensus_gct.write_gct('{}.consensus.k.{}.gct'.format(args.outputfileprefix,k))
+        elif (rank == 0 or args.parastrategy in ('serial', 'kfactor')) and (args.outputfiletype == 'npy'):
+          write_npy(tchost, f'{args.outputfileprefix}.consensus.k.{k}.npy', rowNames=columnnames, colNames=columnnames, rowDescrip=columnnames, datashape = [M, M])
+        elif args.outputfiletype == 'h5':
+          if debug:
+            print(f'{rank}: before write_h5(tchost...\n')
+          write_h5(tchost, outputfileprefix=f'{args.outputfileprefix}.consensus.k.{k}', rowNames=columnnames, colNames=columnnames, rowDescrip=columnnames, datashape = [M, M], comm_world=MPI.COMM_WORLD)
+          if debug:
+            print(f'{rank}: after write_h5(tchost...\n')
+        if rank == 0 or args.parastrategy in ('serial', 'kfactor'):
+          if debug:
+            print(f'{rank}: xxxxxxxxxxxxxxx Elapsed time for k={k}, consensus matrix generation: {time.process_time() - consensusstart}\n');
+        # calculate cophenetic correlation constant
+        # https://medium.com/@codingpilot25/hierarchical-clustering-and-linkage-explained-in-simplest-way-eef1216f30c5
+        # https://docs.scipy.org/doc/scipy/reference/generated/scipy.cluster.hierarchy.linkage.html
+        # 1. make M clusters, each with one point
+        # 2. compute distance matrix MxM, distance from each cluster to every
+        #    other.  Could do just the lower triangle of the symmetric matrix...
+        #    different methods to compute cluster-to-cluster distance, default
+        #    is nearest point (single).
+        # 3. Merge closest two clusters into a new cluster
+        # 4. update distance matrix, using new cluster
+        # repeat 2 and 3 until only one cluster remains
+        print(f'{rank}: before linkage\n')
+        cophstart = time.process_time()
+        # maybe try replacing with fastcluster:
+        # https://pypi.org/project/fastcluster/
+        # or:
+        # https://docs.rapids.ai/api/cuml/stable/api.html#agglomerative-clustering
+        #linkage_mat = scipy.cluster.hierarchy.linkage(tchost)
+        #linkage_mat = cupyx.scipy.cluster.hierarchy.linkage(together_counts)
+        linkage_mat = fastcluster.linkage(tchost)
+        linkageend = time.process_time()
+        print(f'{rank}: linkage time: {linkageend - cophstart}\n')
+        print(f'{rank}: before pdist\n')
+        cdm = scipy.spatial.distance.pdist(tchost)
+        #cdm = cupyx.scipy.spatial.distance.pdist(together_counts)
+        #tchostfloat = tchost.astype(NUMPYTYPE,)
+        #cdm = fastdist.matrix_pairwise_distance(tchostfloat, fastdist.euclidean, "euclidean")
+        #cdm = cdm.transpose()
+        print(f'{rank}: cdm.shape: {cdm.shape}\n')
+        # cdmhost = cdm.get()
+        pdistend = time.process_time()
+        print(f'{rank}: pdist time: {pdistend - linkageend}\n')
+        # coming soon: https://github.com/cupy/cupy/issues/5946
+        #cdm = cupyx.scipy.spatial.distance.pdist(together_counts)
+        # maybe use fastdist for now:
+        # https://pypi.org/project/fastdist/
+        print(f'{rank}: before cophenet\n')
+        cophenetic_correlation_distance, cophenetic_distance_matrix = scipy.cluster.hierarchy.cophenet(linkage_mat, cdm)
+        #cophenetic_correlation_distance, cophenetic_distance_matrix = scipy.cluster.hierarchy.cophenet(linkage_mat, cdmhost)
+        cophend = time.process_time()
+        print(f'{rank}: cophenet time: {cophend - pdistend}\n')
+        #cophenetic_correlation_distance, cophenetic_distance_matrix = cupyx.scipy.cluster.hierarchy.cophenet(linkage_mat, cdm)
+        print('k={}, cophenetic_correlation_distance: ({})'.format(k,cophenetic_correlation_distance))
+        print(f'{rank}: cophenetic correlation distance calculatioin: {time.process_time() - cophstart}\n');
+        # do other postprocessing
+        postprocessstart = time.process_time()
+        if args.postprocess:
+          # sort the samples in the consensus matrix for the plot
+          # put this back after using npy:
+          print(f'{rank}: before DataFrame\n')
+          countsdf=pd.DataFrame(tchost, columns=columnnames, index=columnnames)
+          print(f'{rank}: before KMeans fit\n')
+          kmeans = cluster.KMeans(n_clusters=2).fit(countsdf)
+          labels = kmeans.labels_
+      
+          namedf = pd.DataFrame(labels, index = columnnames)
+          sortedNames = namedf.sort_values(0).index
+      
+          countsdf = countsdf[sortedNames]
+          countsdf = countsdf.reindex(sortedNames)
+          print(f'{rank}: before to_numpy\n')
+          sorted_i_counts = countsdf.to_numpy()
+          if rank == 0 and args.outputfiletype == 'gct':
+            print(f'{rank}: before sc = NP_GCT\n')
+            sc = NP_GCT(data=sorted_i_counts, rowNames=sortedNames, colNames=sortedNames )
+            print(f'{rank}: before sc.write_gct\n')
+            sc.write_gct('{}.consensus.k.{}.sorted.gct'.format(args.outputfileprefix,k))
+          elif rank == 0 and args.outputfiletype == 'npy':
+            print(f'{rank}: before sc.write_npy\n')
+            write_npy(sorted_i_counts, f'{args.outputfileprefix}.consensus.k.{k}.sorted.npy', rowNames=sortedNames, colNames=sortedNames, rowDescrip=sortedNames, datashape = [M, M])
+          elif args.outputfiletype == 'h5':
+            write_h5(sorted_i_counts, f'{args.outputfileprefix}.consensus.k.{k}.sorted', rowNames=sortedNames, colNames=sortedNames, rowDescrip=sortedNames, datashape = [M, M], comm_world=MPI.COMM_WORLD)
+      
+          if rank == 0 or args.parastrategy in ('serial', 'kfactor'):
+            print(f'{rank}: before subplots\n')
+            fig, ax = plt.subplots()
+            fig.set_figwidth(8)
+            fig.set_figheight(8)
+            print(f'{rank}: before imshow\n')
+            im = plt.imshow(sorted_i_counts, cmap='bwr', interpolation='nearest')
+        
+            ax.set_xticks(np.arange(len(sortedNames)), labels=sortedNames)
+            ax.set_yticks(np.arange(len(sortedNames)), labels=sortedNames)
+        
+            # Rotate the tick labels and set their alignment.
+            plt.setp(ax.get_xticklabels(), rotation=45, ha="right",  rotation_mode="anchor")
+        
+            ax.set_title("Consensus Matrix, k="+str(k))
+            fig.tight_layout()
+        
+            plt.savefig('{}.consensus.k.{}.pdf'.format(args.outputfileprefix,k))  
+            with open('{}.cophenetic.txt'.format(args.outputfileprefix), 'w') as file:
+                file.write(str(k) + "\t" + str(cophenetic_correlation_distance) + "\n")
+        if rank == 0 or args.parastrategy in ('serial', 'kfactor'):
+          if debug:
+            print(f'{rank}: xxxxxxxxxxxxxxx Elapsed time for k={k}, all postprocessing : {time.process_time() - postprocessstart}\n');
+      if rank == 0 or args.parastrategy in ('serial', 'kfactor'):
+        if debug:
+          print(f'{rank}: xxxxxxxxxxxxxxx Elapsed time for k={k} : {time.process_time() - kstart}\n');
+      if debug:
+        thistime = MPI.Wtime()
+        print(f'rank {rank}: finished consensus matrix: ({thistime - lasttime})\n')
+        lasttime = thistime
+      i_counts = None
+      together_counts = None
+      mempool.free_all_blocks()
+    else:
+      print(f'{rank}: not generating consensus matrix...\n')
+
+except BaseException as e:
+  traceback.print_tb(sys.exc_info()[2])
+  print(f'{rank}: Unexpected error:', sys.exc_info()[0])
+  # cleanup may fail if out of memory or exceeded wallclock limit
+  if args.nocleanup == True:
+    print(f'{rank}: keeping {JOBDIR}/k.*\n')
   else:
-    print(f'{rank}: not generating consensus matrix...\n')
+    if rank == 0:
+      for kdir in kdirs:
+        print(f'{rank}: rmtree of {JOBDIR}/{kdir}\n')
+        shutil.rmtree(f'{JOBDIR}/{kdir}')
+  raise e
 
-#except Error as e:
-#  traceback.print_tb(sys.exc_info()[2])
-#  print("Unexpected error:", sys.exc_info()[0])
-#  if args.nocleanup == True:
-#    print('keeping ' + JOBDIR + '/k*')
-#    print('keeping ' + JOBDIR + '/bionmf.input.txt')
-#  #else:
-#    #if not debug:
-#      #os.unlink(JOBDIR + '/bionmf.input.txt')
-#      #for kdir in kdirs:
-#      #  print('rmtree of ' + JOBDIR + '/k.{}'.format(k))
-#      #  shutil.rmtree(JOBDIR + '/k.{}'.format(k))
-#  raise e
-
+# cleanup may fail if out of memory or exceeded wallclock limit
 if args.keepintermediatefiles == True:
-  print('keeping ' + JOBDIR + '/bionmf.input.txt')
+  print(f'{rank}: keeping {JOBDIR}/k.*\n')
 else:
-  print('unlink of ' + JOBDIR + '/bionmf.input.txt')
-  os.unlink(JOBDIR + '/bionmf.input.txt')
+    if rank == 0:
+      for kdir in kdirs:
+        print(f'{rank}: rmtree of {JOBDIR}/{kdir}\n')
+        shutil.rmtree(f'{JOBDIR}/{kdir}')
 
