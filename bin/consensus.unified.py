@@ -404,7 +404,7 @@ def runnmf(myVcols=None,myVrows=None, mystartrow=None, myendrow=None,mystartcol=
       thistime = MPI.Wtime()
       print(f'rank {rank}: kfactor {kfactor}: seed {seed} : iteration {iterationcount} : update Hnew time: ({thistime - lasttime})\n')
       lasttime = thistime
-    if parastrategy == 'inputmatrix':
+    if args.parastrategy == 'inputmatrix':
       # Daniel's code suggests flattening before the allgather and
       # reshaping after.  Also, for recvbuf, use a tuple of receive
       # array and sendcount
@@ -494,7 +494,7 @@ def runnmf(myVcols=None,myVrows=None, mystartrow=None, myendrow=None,mystartcol=
       thistime = MPI.Wtime()
       print(f'rank {rank}: kfactor {kfactor}: seed {seed} : iteration {iterationcount} :  update Wnew time: ({thistime - lasttime})\n')
       lasttime = thistime
-    if parastrategy == 'inputmatrix':
+    if args.parastrategy == 'inputmatrix':
       Wshape = W.shape
       Wnewflat = Wnew.ravel(order='C')
       Wrecv = cp.empty(W.size, dtype=OTHERTYPE)
@@ -555,7 +555,7 @@ def runnmf(myVcols=None,myVrows=None, mystartrow=None, myendrow=None,mystartcol=
       if not klerrordiffmax == None:
         if debug:
           print(f'{rank}: checking KL divergence, since klerrordiffmax: ({klerrordiffmax})\n')
-        if parastrategy == 'inputmatrix':
+        if args.parastrategy == 'inputmatrix':
           if debug:
             print(f'{rank}: checking MPI KL divergence, since parastrategy: ({parastrategy})\n')
           WHkl = cp.dot(W,Hnew)
@@ -653,7 +653,8 @@ def runnmf(myVcols=None,myVrows=None, mystartrow=None, myendrow=None,mystartcol=
           cp.cuda.Stream.null.synchronize()
           WH_datakl = WHkl.ravel()
           cp.cuda.Stream.null.synchronize()
-          X_datakl = V.ravel()
+          #X_datakl = V.ravel()
+          X_datakl = myVcols.ravel()
           cp.cuda.Stream.null.synchronize()
           indices = X_datakl > EPSILON
           cp.cuda.Stream.null.synchronize()
@@ -682,7 +683,14 @@ def runnmf(myVcols=None,myVrows=None, mystartrow=None, myendrow=None,mystartcol=
           cp.cuda.Stream.null.synchronize()
           if debug:
             print(f'{rank}: KL divergence, serial calculation, res: ({res})\n')
-          error = OTHERTYPE(cp.sqrt(2 * res))
+            print(f'{rank}: typ(res): ({type(res)})\n')
+            print(f'{rank}: type(2 * res): ({type(2 * res)})\n')
+            print(f'{rank}: type(cp.sqrt(2 * res)) {type(cp.sqrt(2 * res))}')
+          #error = OTHERTYPE(cp.sqrt(2 * res))
+          #error = cp.sqrt(2 * res)
+          totalres = res
+          error = numpy.sqrt(2 * totalres)
+          #error = numpy.sqrt(2 * totalres/X_datakl.size) * math.sqrt(X_datakl.size)
           if debug:
             print(f'{rank}: oldserialerror: {oldserialerror}\n')
           if type(oldserialerror) == types.NoneType:
@@ -723,7 +731,7 @@ def runnmf(myVcols=None,myVrows=None, mystartrow=None, myendrow=None,mystartcol=
             indices = None
             sum_WH = None
             mempool.free_all_blocks()
-            return(W,H)
+            #return(W,H)
         #end else if parastrategy != 'inputmatrix':
         WHkl = None
         WH_datakl = None
@@ -798,7 +806,7 @@ def runnmf(myVcols=None,myVrows=None, mystartrow=None, myendrow=None,mystartcol=
 # initialize MPI
 comm = MPI.COMM_WORLD
 rank = comm.rank
-mpi_size = comm.size
+numtasks = comm.size
 
 # on shared GPU nodes, assume the job sees only its device ids,
 # starting from 0, incrementing by one.
@@ -902,21 +910,27 @@ if debug:
 # to each task or decomposing the input matrix across all tasks,
 # create myVcols, mVrows whole/partial inputs
 k_values = np.arange(mink, maxk + 1)
+N = V.shape[0]
+M = V.shape[1]
+if debug:
+  DEBUGOPTION = '--verbose'
+  DEBUGVAL = True
+else:
+  DEBUGOPTION = ''
+  DEBUGVAL = False
 if args.parastrategy == 'kfactor':
-  k_subsets = divide_almost_equally(k_values, mpi_size)
+  k_subsets = divide_almost_equally(k_values, numtasks)
   my_k_indices = k_subsets[rank]
   # need to create myVcols and myVrows here...
   myV = cp.array(V)
   myVcols = myV
   myVrows = myV
+  mystartcol = 0
+  myendcol = M - 1
+  mystartrow = 0
+  myendrow = N - 1
 else:
   my_k_indices = k_values
-  if debug:
-    DEBUGOPTION = '--verbose'
-    DEBUGVAL = True
-  else:
-    DEBUGOPTION = ''
-    DEBUGVAL = False
   # here is where to put decomposition according to parastrategy...
   if comm == None or args.parastrategy in ('serial', 'kfactor'):
     rank = 0
@@ -927,8 +941,6 @@ else:
   if debug:
     print(f'{rank}: inputarray.shape: ({V.shape})\n')
     print(f'{rank}: V: ({V})\n')
-  N = V.shape[0]
-  M = V.shape[1]
   # padding?
   # if cols = 9, numtasks = 2, colspertask = 4, padding = 1
   # rank 0:
@@ -988,27 +1000,32 @@ try:
     myVrows = cp.array(V[mystartrow:myendrow + 1,:])
     if debug:
       print(f'{rank}: start of loop for k={k}\n')
-    # set up Hsendcountlist and Wsendcountlist for use in AllGatherv
-    Hsendcountlist = []
-    for tn in range(numtasks):
-      if colremainder == 0:
-        Hsendcountlist.append(k * colspertask)
-      else:
-        if tn == numtasks - 1:
-          #last task:
-          Hsendcountlist.append(k * ((colspertask + 1) - colpad))
+    
+    if args.parastrategy == 'inputmatrix':
+      # set up Hsendcountlist and Wsendcountlist for use in AllGatherv
+      Hsendcountlist = []
+      for tn in range(numtasks):
+        if colremainder == 0:
+          Hsendcountlist.append(k * colspertask)
         else:
-          Hsendcountlist.append(k * (colspertask + 1))
-    Wsendcountlist = []
-    for tn in range(numtasks):
-      if rowremainder == 0:
-        Wsendcountlist.append(k * rowspertask)
-      else:
-        if tn == numtasks - 1:
-          #last task:
-          Wsendcountlist.append(k * ((rowspertask + 1) - rowpad))
+          if tn == numtasks - 1:
+            #last task:
+            Hsendcountlist.append(k * ((colspertask + 1) - colpad))
+          else:
+            Hsendcountlist.append(k * (colspertask + 1))
+      Wsendcountlist = []
+      for tn in range(numtasks):
+        if rowremainder == 0:
+          Wsendcountlist.append(k * rowspertask)
         else:
-          Wsendcountlist.append(k * (rowspertask + 1))
+          if tn == numtasks - 1:
+            #last task:
+            Wsendcountlist.append(k * ((rowspertask + 1) - rowpad))
+          else:
+            Wsendcountlist.append(k * (rowspertask + 1))
+    else:
+      Hsendcountlist = None
+      Wsendcountlist = None
     if debug:
       print(f'{rank}: mystartrow: {mystartrow}, myendrow: {myendrow}, mystartcol: {mystartcol}, myendcol: {myendcol}, myrowcount: {myrowcount}, mycolcount: {mycolcount}, Hsendcountlist: {Hsendcountlist}, Wsendcountlist: {Wsendcountlist}\n')
     # allocate the consensus matrix on device
