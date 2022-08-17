@@ -246,9 +246,14 @@ def write_npy(data=None, outputfileprefix=None, colNames=[], rowNames=[], rowDes
 # write HDF5 array, including attributes
 def write_h5(data=None, outputfileprefix=None, colNames=[], rowNames=[], rowDescrip = [], datashape = None, comm_world=None):
   rank = comm_world.rank
+  print(f'{rank}: beginning of write_h5\n')
   outf = h5py.File(outputfileprefix + '.h5', 'w', driver='mpio', comm=comm_world, libver='latest')
+  print(f'{rank}: after h5py.File\n')
   datasetname = outputfileprefix
+  print(f'{rank}: before create_dataset({datasetname})\n')
   dset = outf.create_dataset(datasetname, data=data, dtype=data.dtype)
+  print(f'{rank}: after create_dataset({datasetname})\n')
+  print(f'colNames {colNames}\n')
   dset.attrs['column_names'] = colNames
   dset.attrs['row_names'] = rowNames
   dset.attrs['row_descriptions'] = rowDescrip
@@ -843,7 +848,7 @@ parser.add_argument('-t', '--consecutive', dest='consecutive', action='store')
 parser.add_argument('-u', '--outputfiletype', dest='outputfiletype', action='store')
 parser.add_argument('-v', '--verbose', dest='verbose', action='store_true')
 parser.add_argument('-x', '--maxiterations', dest='maxiterations', action='store')
-parser.add_argument('-z', '--postprocess', dest='postprocess', action='store_true')
+#parser.add_argument('-z', '--postprocess', dest='postprocess', action='store_true')
 args = parser.parse_args()
 JOBDIR = args.jobdir
 os.makedirs(JOBDIR, exist_ok=True)
@@ -859,6 +864,9 @@ if debug:
   print(f'mempool.total_bytes(): ({mempool.total_bytes()})\n')
   print(f'mempool.n_free_blocks(): ({mempool.n_free_blocks()})\n')
 if args.inputfiletype == 'h5':
+  print(f'Sorry, HDF5 format not supported, yet!\n')
+  sys.exit(1)
+if args.outputfiletype == 'h5':
   print(f'Sorry, HDF5 format not supported, yet!\n')
   sys.exit(1)
 if debug:
@@ -991,7 +999,8 @@ try:
   for k in my_k_indices:
     kdirs.append('k.{}'.format(k))
     os.chdir(JOBDIR)
-    os.makedirs(f'k.{k}', exist_ok=True)
+    if args.keepintermediatefiles == True:
+      os.makedirs(f'k.{k}', exist_ok=True)
     kstart = time.process_time() 
     if debug:
       print(f'{rank}: k {k} start of k iteration, mempool.used_bytes(): {mempool.used_bytes()}\n')
@@ -1034,8 +1043,9 @@ try:
     for seed in seed_list:
       start = time.process_time() 
       os.chdir(JOBDIR)
-      os.makedirs(f'k.{k}/seed.{seed}', exist_ok=True)
-      os.chdir(f'k.{k}/seed.{seed}')
+      if args.keepintermediatefiles == True:
+        os.makedirs(f'k.{k}/seed.{seed}', exist_ok=True)
+        os.chdir(f'k.{k}/seed.{seed}')
       if debug:
         print(f'{rank}: doing k={k}, seed={seed}\n')
         print(f'{rank}: k {k} : seed {seed} start of seed iteration, mempool.used_bytes(): {mempool.used_bytes()}\n')
@@ -1052,36 +1062,39 @@ try:
         continue
       else:
         #print(f'type(H) not types.NoneType...')
-        if args.inputfiletype in ('npy',) and inputattributespath.exists:
-          columnnames = attributes_dict['column_names']
-          rownames = attributes_dict['row_names']
-          rowdescriptions = attributes_dict['row_descriptions']
-          Wdatashape = [N,k]
-          Hdatashape = [k,M]
-        elif args.inputfiletype in ('gct',):
-          columnnames = gct_data.columnnames
-          rownames = gct_data.rownames
-          rowdescriptions = gct_data.rowdescriptions
-          Wdatashape = [N,k]
-          Hdatashape = [k,M]
-        if args.outputfiletype == 'npy':
-          write_npy(W.get(), f'{args.outputfileprefix}.W.k.{k}.seed.{seed}.npy', rowNames=rownames, colNames=range(k), rowDescrip=rownames, datashape = [N, k])
-          write_npy(H.get(), f'{args.outputfileprefix}.H.k.{k}.seed.{seed}.npy', rowNames=range(k), colNames=columnnames, rowDescrip=range(k), datashape = [k, M])
-        elif args.outputfiletype == 'h5':
-          if debug:
-            print(f'write_h5...')
-          write_h5(W.get(), f'{args.outputfileprefix}.W.k.{k}.seed.{seed}', rowNames=rownames, colNames=range(k), rowDescrip=rownames, datashape = [N, k], comm_world=MPI.COMM_WORLD)
-          write_h5(H.get(), f'{args.outputfileprefix}.H.k.{k}.seed.{seed}', rowNames=range(k), colNames=columnnames, rowDescrip=range(k), datashape = [k, M], comm_world=MPI.COMM_WORLD)
-          write_h5(W.get(), f'{args.outputfileprefix}.W.k.{k}.seed.{seed}', rowNames=rownames, colNames=range(k), rowDescrip=rownames, datashape = [N, k], comm_world=MPI.COMM_WORLD)
-          if debug:
-            print(f'after write_h5...')
-        elif args.outputfiletype == 'gct':
-          H_gct = NP_GCT(data=H.get(), rowNames=list(map(str,range(k))), colNames=columnnames,rowDescrip=list(map(str,range(k))))
-          H_gct.write_gct(f'{args.outputfileprefix}.H.k.{k}.seed.{seed}.gct')
-          W_gct = NP_GCT(data=W.get(), rowNames=rownames, colNames=list(map(str,range(k))),rowDescrip=rownames)
-          W_gct.write_gct(f'{args.outputfileprefix}.W.k.{k}.seed.{seed}.gct')
+        if args.keepintermediatefiles == True:
+          if args.inputfiletype in ('npy',) and inputattributespath.exists:
+            columnnames = attributes_dict['column_names']
+            rownames = attributes_dict['row_names']
+            rowdescriptions = attributes_dict['row_descriptions']
+            Wdatashape = [N,k]
+            Hdatashape = [k,M]
+          elif args.inputfiletype in ('gct',):
+            columnnames = gct_data.columnnames
+            rownames = gct_data.rownames
+            rowdescriptions = gct_data.rowdescriptions
+            Wdatashape = [N,k]
+            Hdatashape = [k,M]
+          if args.outputfiletype == 'npy':
+            write_npy(W.get(), f'{args.outputfileprefix}.W.k.{k}.seed.{seed}.npy', rowNames=rownames, colNames=range(k), rowDescrip=rownames, datashape = [N, k])
+            write_npy(H.get(), f'{args.outputfileprefix}.H.k.{k}.seed.{seed}.npy', rowNames=range(k), colNames=columnnames, rowDescrip=range(k), datashape = [k, M])
+          elif args.outputfiletype == 'h5':
+            if debug:
+              print(f'write_h5...')
+            write_h5(W.get(), f'{args.outputfileprefix}.W.k.{k}.seed.{seed}', rowNames=rownames, colNames=range(k), rowDescrip=rownames, datashape = [N, k], comm_world=MPI.COMM_WORLD)
+            write_h5(H.get(), f'{args.outputfileprefix}.H.k.{k}.seed.{seed}', rowNames=range(k), colNames=columnnames, rowDescrip=range(k), datashape = [k, M], comm_world=MPI.COMM_WORLD)
+            write_h5(W.get(), f'{args.outputfileprefix}.W.k.{k}.seed.{seed}', rowNames=rownames, colNames=range(k), rowDescrip=rownames, datashape = [N, k], comm_world=MPI.COMM_WORLD)
+            if debug:
+              print(f'after write_h5...')
+          elif args.outputfiletype == 'gct':
+            H_gct = NP_GCT(data=H.get(), rowNames=list(map(str,range(k))), colNames=columnnames,rowDescrip=list(map(str,range(k))))
+            H_gct.write_gct(f'{args.outputfileprefix}.H.k.{k}.seed.{seed}.gct')
+            W_gct = NP_GCT(data=W.get(), rowNames=rownames, colNames=list(map(str,range(k))),rowDescrip=rownames)
+            W_gct.write_gct(f'{args.outputfileprefix}.W.k.{k}.seed.{seed}.gct')
+          else:
+            print(f'Sorry, not writing W and H, unless --outputfiletype=npy or h5 or gct.\n')
         else:
-          print(f'Sorry, not writing W and H, unless --outputfiletype=npy or h5 or gct.\n')
+          print(f'--keepintermediatefiles not True, not writing out W and H\n')
         togetherstart = time.process_time()
         if debug:
           print(f'{rank}: before cp.asnumpy\n')
@@ -1144,6 +1157,7 @@ try:
         print(f'{rank}: end of seed-list for loop\n')
         print(f'{rank}: finished k={k}, seed={seed}\n')
       mempool.free_all_blocks()
+    os.chdir(JOBDIR)
     myVrows = None
     myVcols = None
     mempool.free_all_blocks()
@@ -1247,7 +1261,7 @@ try:
         print(f'{rank}: cophenetic correlation distance calculatioin: {time.process_time() - cophstart}\n');
         # do other postprocessing
         postprocessstart = time.process_time()
-        if args.postprocess:
+        if True or args.postprocess:
           # sort the samples in the consensus matrix for the plot
           # put this back after using npy:
           print(f'{rank}: before DataFrame\n')
@@ -1271,7 +1285,9 @@ try:
           elif rank == 0 and args.outputfiletype == 'npy':
             print(f'{rank}: before sc.write_npy\n')
             write_npy(sorted_i_counts, f'{args.outputfileprefix}.consensus.k.{k}.sorted.npy', rowNames=sortedNames, colNames=sortedNames, rowDescrip=sortedNames, datashape = [M, M])
-          elif args.outputfiletype == 'h5':
+          elif rank == 0 and args.outputfiletype == 'h5':
+            print(f'{rank}: before write_h5 {args.outputfileprefix}.consensus.k.{k}\n')
+            print(f'sortedNames {sortedNames}\n')
             write_h5(sorted_i_counts, f'{args.outputfileprefix}.consensus.k.{k}.sorted', rowNames=sortedNames, colNames=sortedNames, rowDescrip=sortedNames, datashape = [M, M], comm_world=MPI.COMM_WORLD)
       
           if rank == 0 or args.parastrategy in ('serial', 'kfactor'):
@@ -1324,11 +1340,11 @@ except BaseException as e:
   raise e
 
 # cleanup may fail if out of memory or exceeded wallclock limit
-if args.keepintermediatefiles == True:
-  print(f'{rank}: keeping {JOBDIR}/k.*\n')
-else:
-    if rank == 0:
-      for kdir in kdirs:
-        print(f'{rank}: rmtree of {JOBDIR}/{kdir}\n')
-        shutil.rmtree(f'{JOBDIR}/{kdir}')
+#if args.keepintermediatefiles == True:
+#  print(f'{rank}: keeping {JOBDIR}/k.*\n')
+#else:
+#    if rank == 0:
+#      for kdir in kdirs:
+#        print(f'{rank}: rmtree of {JOBDIR}/{kdir}\n')
+#        shutil.rmtree(f'{JOBDIR}/{kdir}')
 
