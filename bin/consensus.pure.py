@@ -1,4 +1,4 @@
-#!/expanse/lustre/projects/ddp242/kenneth/pure/install/venv/bin/python3
+##### /expanse/lustre/projects/ddp242/kenneth/pure/install/venv/bin/python3
 # from NMF GPU Functional specification document:
 # ...
 #A pseudocode representation of the workflow we’re looking for is below. We are also interested in timing statistics - most important is wall clock time from start to finish, but if we can time each iteration of k that would be very helpful also.

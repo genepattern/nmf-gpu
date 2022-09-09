@@ -610,7 +610,7 @@ def runnmf(myVcols=None,myVrows=None, mystartrow=None, myendrow=None,mystartcol=
           error = numpy.sqrt(2 * totalres/X_datakl.size) * math.sqrt(X_datakl.size)
           if debug:
             print(f'{rank}:{iterationcount} scaled error {error}\n')
-          if type(oldmpierror) == types.NoneType:
+          if type(oldmpierror) == type(None):
             errordiff = None
             oldmpierror = error
           else:
@@ -622,7 +622,7 @@ def runnmf(myVcols=None,myVrows=None, mystartrow=None, myendrow=None,mystartcol=
             print(f'{rank}: afer Reduce, totalres: ({totalres})\n')
             print(f'{rank}: MPI KL divergence, error: ({error})\n')
             print(f'{rank}: mpi error difference: {errordiff}\n')
-          if (not type(errordiff) == types.NoneType) and errordiff < klerrordiffmax:
+          if (not type(errordiff) == type(None)) and errordiff < klerrordiffmax:
             if debug:
               print(f'{rank}: interationcount ({iterationcount}): errordiff ({errordiff}) < klerrordiffmax ({klerrordiffmax}), return(W,H)\n')
             totalres = None
@@ -698,7 +698,7 @@ def runnmf(myVcols=None,myVrows=None, mystartrow=None, myendrow=None,mystartcol=
           #error = numpy.sqrt(2 * totalres/X_datakl.size) * math.sqrt(X_datakl.size)
           if debug:
             print(f'{rank}: oldserialerror: {oldserialerror}\n')
-          if type(oldserialerror) == types.NoneType:
+          if type(oldserialerror) == type(None):
             errordiff = None
             oldserialerror = error
           else:
@@ -710,7 +710,7 @@ def runnmf(myVcols=None,myVrows=None, mystartrow=None, myendrow=None,mystartcol=
           if debug:
             print(f'{rank}: KL divergence, serial calculation, error: ({error})\n')
           #KLFO.write(f'{iterationcount}\t{error}\n')
-          if (not type(errordiff) == types.NoneType) and errordiff < klerrordiffmax:
+          if (not type(errordiff) == type(None)) and errordiff < klerrordiffmax:
             if debug:
               print(f'{rank}: interationcount ({iterationcount}): errordiff ({errordiff}) < klerrordiffmax ({klerrordiffmax}), return(W,H)\n')
             if errordiff >= 0.0:
@@ -1056,12 +1056,12 @@ try:
       if rank == 0 or args.parastrategy in ('serial', 'kfactor'):
         if debug:
           print(f'{rank}: xxxxxxxxxxxxxxx Elapsed time for k={k} seed={seed} : {time.process_time() - start}\n');
-      if type(H) == types.NoneType:
+      if type(H) == type(None):
         print(f'failed to get H ({H}), continuing...\n')
         #sys.exit(1)
         continue
       else:
-        #print(f'type(H) not types.NoneType...')
+        #print(f'type(H) not type(None)...')
         if args.keepintermediatefiles == True:
           if args.inputfiletype in ('npy',) and inputattributespath.exists:
             columnnames = attributes_dict['column_names']

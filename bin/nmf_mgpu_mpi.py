@@ -361,7 +361,7 @@ def runnmf(inputmatrix=None,kfactor=2,checkinterval=10,threshold=40,maxiteration
             print(f'{rank}: empty totalres: ({totalres})\n')
           comm.Allreduce(res, totalres)
           error = numpy.sqrt(2 * totalres)
-          if type(oldmpierror) == types.NoneType:
+          if type(oldmpierror) == type(None):
             errordiff = None
             oldmpierror = error
           else:
@@ -371,7 +371,7 @@ def runnmf(inputmatrix=None,kfactor=2,checkinterval=10,threshold=40,maxiteration
             print(f'{rank}: afer Reduce, totalres: ({totalres})\n')
             print(f'{rank}: MPI KL divergence, error: ({error})\n')
             print(f'{rank}: mpi error difference: {errordiff}\n')
-          if (not type(errordiff) == types.NoneType) and errordiff < klerrordiffmax:
+          if (not type(errordiff) == type(None)) and errordiff < klerrordiffmax:
             if debug:
               print(f'{rank}: interationcount ({iterationcount}): errordiff ({errordiff}) < klerrordiffmax ({klerrordiffmax}), return(W,H)\n')
             return(W,H)
@@ -418,7 +418,7 @@ def runnmf(inputmatrix=None,kfactor=2,checkinterval=10,threshold=40,maxiteration
           error = cp.sqrt(2 * res)
           if debug:
             print(f'{rank}: oldserialerror: {oldserialerror}\n')
-          if type(oldserialerror) == types.NoneType:
+          if type(oldserialerror) == type(None):
             errordiff = None
             oldserialerror = error
           else:
@@ -430,7 +430,7 @@ def runnmf(inputmatrix=None,kfactor=2,checkinterval=10,threshold=40,maxiteration
           if debug:
             print(f'{rank}: KL divergence, serial calculation, error: ({error})\n')
           #KLFO.write(f'{iterationcount}\t{error}\n')
-          if (not type(errordiff) == types.NoneType) and errordiff < klerrordiffmax:
+          if (not type(errordiff) == type(None)) and errordiff < klerrordiffmax:
             if debug:
               print(f'{rank}: interationcount ({iterationcount}): errordiff ({errordiff}) < klerrordiffmax ({klerrordiffmax}), return(W,H)\n')
             return(W,H)
