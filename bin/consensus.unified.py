@@ -82,6 +82,7 @@ from cuml import AgglomerativeClustering
 from cuml.metrics import pairwise_distances
 from cuml.metrics.cluster import silhouette_score
 from cupy.cuda.nvtx import RangePush,RangePop
+import rmm
 
 # set data types
 RANDTYPE = cp.float32
@@ -966,6 +967,7 @@ else:
 
 M = V.shape[1]
 #print("Read " + args.inputfile + "  " + str(V.shape))
+cp.cuda.set_allocator(rmm.rmm_cupy_allocator)
 
 if debug:
   print('M ({}) from ({})'.format(M,V))
@@ -1243,7 +1245,7 @@ try:
           for i_index in range(M):
             sys.stdout.write('\n')
             for j_index in range(M):
-              sys.stdout.write('{:>2.0f}'.format(h_together_counts[i_index, j_index]/10))
+              sys.stdout.write('{:>2.0f}'.format(h_together[i_index, j_index]/10))
           sys.stdout.write('\n')
         else:
           print(f'{rank}: consensus matrix larger than 80x80, not printing.\n')
