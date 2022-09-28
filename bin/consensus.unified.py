@@ -1434,6 +1434,8 @@ try:
     print(f'2. NEW VERSION ELAPSED time: {TEDS_END_TIME - TEDS_START_TIME}\n')
     RangePop() # Consensus
     RangePop() # K=
+    TEDS_END_TIME = time.time()
+    print(f'2. NEW VERSION ELAPSED time: {TEDS_END_TIME - TEDS_START_TIME}\n')
 
 except BaseException as e:
   traceback.print_tb(sys.exc_info()[2])
