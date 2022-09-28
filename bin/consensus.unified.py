@@ -77,6 +77,9 @@ import pathlib
 import h5py
 from fastdist import fastdist
 import fastcluster
+from cuml import AgglomerativeClustering
+from cuml.metrics import pairwise_distance
+from cuml.metrics import silhouette_score
 
 # set data types
 RANDTYPE = cp.float32
@@ -97,7 +100,7 @@ class NP_GCT:
   # #1.2
   # ros cols
   # name descrip sample1 sample2 ...
-  # rowname1 rowdescrip1 value value ...   
+  # rowname1 rowdescrip1 value value ...
   def __init__(self, filename=None, data=None, rowNames=None, rowDescrip=None, colNames=None):
     if filename:
       print(filename)
@@ -149,19 +152,19 @@ class NP_GCT:
       #self.data = cp.array(data, dtype=OTHERTYPE)
 
       f.close()
-    else:    
+    else:
       self.data=data
       self.rownames=rowNames
       self.rowdescriptions=rowDescrip
       self.columnnames=colNames
     print(f'{rank}: Loaded matrix of shape {self.data.shape}\n')
-    
+
   def write_gct(self, file_path):
     """
     Writes the provided NP_GCT to a GCT file.
-    If any of rownames, rowdescriptions or columnnames is missing write the 
+    If any of rownames, rowdescriptions or columnnames is missing write the
     index in their place (starting with 1)
-    
+
     :param file_path:
     :return:
     """
@@ -207,17 +210,17 @@ class NP_GCT:
     """
     np.set_printoptions(suppress=True)
     with open(file_path, 'w') as file:
-            
+
       file.write('#1.2\n' + str(len(self.rownames)) + '\t' + str(len(self.columnnames)) + '\n')
       file.write("Name\tDescription\t")
       file.write(self.columnnames[0])
-            
+
       for j in range(1, len(self.columnnames)):
         file.write('\t')
         file.write(self.columnnames[j])
-                
+
       file.write('\n')
-                
+
       for i in range(len(self.rownames)):
         file.write(self.rownames[i] + '\t')
         file.write(self.rowdescriptions[i] + '\t')
@@ -225,7 +228,7 @@ class NP_GCT:
         for j in range(1, len(self.columnnames)):
           file.write('\t')
           file.write(str(self.data[i,j]))
-                    
+
         file.write('\n')
     print("File written " + file_path)
 
@@ -242,7 +245,7 @@ def write_npy(data=None, outputfileprefix=None, colNames=[], rowNames=[], rowDes
   FO = open(outputfileprefix + '.npy', 'wb')
   numpy.save(FO, data)
   FO.close()
-         
+
 # write HDF5 array, including attributes
 def write_h5(data=None, outputfileprefix=None, colNames=[], rowNames=[], rowDescrip = [], datashape = None, comm_world=None):
   rank = comm_world.rank
@@ -259,7 +262,7 @@ def write_h5(data=None, outputfileprefix=None, colNames=[], rowNames=[], rowDesc
   dset.attrs['row_descriptions'] = rowDescrip
   dset.attrs['data_shape'] = datashape
   outf.close()
-         
+
 def divide_almost_equally(arr, num_chunks):
     arr = sorted(arr, reverse=True)
     heap = [(0, idx) for idx in range(num_chunks)]
@@ -552,7 +555,7 @@ def runnmf(myVcols=None,myVrows=None, mystartrow=None, myendrow=None,mystartcol=
     # * In addition, "pitch" must be a multiple of 'memory_alignment'.
     # Ht is M x k, need array M x 1 to store column index
     if iterationcount > checkinterval and divmod(iterationcount, checkinterval)[1] == 0:
-      classstart = time.process_time() 
+      classstart = time.process_time()
       # check KL divergence
       if debug:
         print(f'{rank}:{iterationcount} start classification check, mempool.used_bytes(): {mempool.used_bytes()}\n')
@@ -993,7 +996,7 @@ try:
     lasttime = thistime
     print(f'{rank}: before iterating over k, mempool.used_bytes(): {mempool.used_bytes()}\n')
     print(f'{rank}: before iterating over k, mempool.total_bytes(): {mempool.total_bytes()}\n')
-  
+
   # iterate over kfactors
   kdirs = []
   for k in my_k_indices:
@@ -1001,7 +1004,7 @@ try:
     os.chdir(JOBDIR)
     if args.keepintermediatefiles == True:
       os.makedirs(f'k.{k}', exist_ok=True)
-    kstart = time.process_time() 
+    kstart = time.process_time()
     if debug:
       print(f'{rank}: k {k} start of k iteration, mempool.used_bytes(): {mempool.used_bytes()}\n')
       print(f'{rank}: k {k} start of k iteration, mempool.total_bytes(): {mempool.total_bytes()}\n')
@@ -1009,7 +1012,7 @@ try:
     myVrows = cp.array(V[mystartrow:myendrow + 1,:])
     if debug:
       print(f'{rank}: start of loop for k={k}\n')
-    
+
     if args.parastrategy == 'inputmatrix':
       # set up Hsendcountlist and Wsendcountlist for use in AllGatherv
       Hsendcountlist = []
@@ -1041,7 +1044,7 @@ try:
     together_counts = cp.zeros((M,M),dtype=TOGETHERTYPE)
     # iterate over seeds
     for seed in seed_list:
-      start = time.process_time() 
+      start = time.process_time()
       os.chdir(JOBDIR)
       if args.keepintermediatefiles == True:
         os.makedirs(f'k.{k}/seed.{seed}', exist_ok=True)
@@ -1234,11 +1237,22 @@ try:
         # https://docs.rapids.ai/api/cuml/stable/api.html#agglomerative-clustering
         #linkage_mat = scipy.cluster.hierarchy.linkage(tchost)
         #linkage_mat = cupyx.scipy.cluster.hierarchy.linkage(together_counts)
-        linkage_mat = fastcluster.linkage(tchost)
+        # linkage_mat = fastcluster.linkage(tchost)
+        Agg = AgglomerativeClustering(n_clusters = k)
+        labels = Agg.fit_predict(tchost)
+        tchost[:, -1] = labels
+        tchost = tchost[tchost[:, -1].argsort()][:, :-2]
+
+
+
         linkageend = time.process_time()
         print(f'{rank}: linkage time: {linkageend - cophstart}\n')
         print(f'{rank}: before pdist\n')
-        cdm = scipy.spatial.distance.pdist(tchost)
+        # cdm = scipy.spatial.distance.pdist(tchost)
+
+        ## pairwise distance using Rapids AI
+        cdm = pairwise_distance(tchost)
+
         #cdm = cupyx.scipy.spatial.distance.pdist(together_counts)
         #tchostfloat = tchost.astype(NUMPYTYPE,)
         #cdm = fastdist.matrix_pairwise_distance(tchostfloat, fastdist.euclidean, "euclidean")
@@ -1252,12 +1266,20 @@ try:
         # maybe use fastdist for now:
         # https://pypi.org/project/fastdist/
         print(f'{rank}: before cophenet\n')
-        cophenetic_correlation_distance, cophenetic_distance_matrix = scipy.cluster.hierarchy.cophenet(linkage_mat, cdm)
+        #cophenetic_correlation_distance, cophenetic_distance_matrix = scipy.cluster.hierarchy.cophenet(linkage_mat, cdm)
+
+        ## silhouette score using RAPIDS AI
+        score = cluster.silhouette_score(together_counts, labels)
+
+        cophenetic_correlation_distance = 0
+        cophenetic_distance_matrix= None
+
         #cophenetic_correlation_distance, cophenetic_distance_matrix = scipy.cluster.hierarchy.cophenet(linkage_mat, cdmhost)
         cophend = time.process_time()
         print(f'{rank}: cophenet time: {cophend - pdistend}\n')
         #cophenetic_correlation_distance, cophenetic_distance_matrix = cupyx.scipy.cluster.hierarchy.cophenet(linkage_mat, cdm)
-        print('k={}, cophenetic_correlation_distance: ({})'.format(k,cophenetic_correlation_distance))
+        print(f'k={rank}, silhouette distance: ({score})')
+        #print('k={}, cophenetic_correlation_distance: ({})'.format(k,cophenetic_correlation_distance))
         print(f'{rank}: cophenetic correlation distance calculatioin: {time.process_time() - cophstart}\n');
         # do other postprocessing
         postprocessstart = time.process_time()
@@ -1269,10 +1291,10 @@ try:
           print(f'{rank}: before KMeans fit\n')
           kmeans = cluster.KMeans(n_clusters=2).fit(countsdf)
           labels = kmeans.labels_
-      
+
           namedf = pd.DataFrame(labels, index = columnnames)
           sortedNames = namedf.sort_values(0).index
-      
+
           countsdf = countsdf[sortedNames]
           countsdf = countsdf.reindex(sortedNames)
           print(f'{rank}: before to_numpy\n')
@@ -1289,7 +1311,7 @@ try:
             print(f'{rank}: before write_h5 {args.outputfileprefix}.consensus.k.{k}\n')
             print(f'sortedNames {sortedNames}\n')
             write_h5(sorted_i_counts, f'{args.outputfileprefix}.consensus.k.{k}.sorted', rowNames=sortedNames, colNames=sortedNames, rowDescrip=sortedNames, datashape = [M, M], comm_world=MPI.COMM_WORLD)
-      
+
           if rank == 0 or args.parastrategy in ('serial', 'kfactor'):
             print(f'{rank}: before subplots\n')
             fig, ax = plt.subplots()
@@ -1297,17 +1319,17 @@ try:
             fig.set_figheight(8)
             print(f'{rank}: before imshow\n')
             im = plt.imshow(sorted_i_counts, cmap='bwr', interpolation='nearest')
-        
+
             ax.set_xticks(np.arange(len(sortedNames)), labels=sortedNames)
             ax.set_yticks(np.arange(len(sortedNames)), labels=sortedNames)
-        
+
             # Rotate the tick labels and set their alignment.
             plt.setp(ax.get_xticklabels(), rotation=45, ha="right",  rotation_mode="anchor")
-        
+
             ax.set_title("Consensus Matrix, k="+str(k))
             fig.tight_layout()
-        
-            plt.savefig('{}.consensus.k.{}.pdf'.format(args.outputfileprefix,k))  
+
+            plt.savefig('{}.consensus.k.{}.pdf'.format(args.outputfileprefix,k))
             with open('{}.cophenetic.txt'.format(args.outputfileprefix), 'w') as file:
                 file.write(str(k) + "\t" + str(cophenetic_correlation_distance) + "\n")
         if rank == 0 or args.parastrategy in ('serial', 'kfactor'):
@@ -1347,4 +1369,3 @@ except BaseException as e:
 #      for kdir in kdirs:
 #        print(f'{rank}: rmtree of {JOBDIR}/{kdir}\n')
 #        shutil.rmtree(f'{JOBDIR}/{kdir}')
-
