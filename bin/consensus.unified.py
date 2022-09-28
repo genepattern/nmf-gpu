@@ -92,7 +92,7 @@ NUMPYTYPE = np.float32
 EPSILON = cp.finfo(OTHERTYPE).eps
 W = None
 H = None
-
+TEDS_START_TIME=time.time()
 # https://docs.cupy.dev/en/stable/user_guide/kernel.html
 # kerneldiv = cp.ElementwiseKernel(
 #   'float32 x, float32 y', 'float32 z', 'z = x / y', 'kerneldiv')
@@ -1159,8 +1159,8 @@ try:
             W_gct.write_gct(f'{args.outputfileprefix}.W.k.{k}.seed.{seed}.gct')
           else:
             print(f'Sorry, not writing W and H, unless --outputfiletype=npy or h5 or gct.\n')
-        else:
-          print(f'--keepintermediatefiles not True, not writing out W and H\n')
+        #else:
+        #  print(f'--keepintermediatefiles not True, not writing out W and H\n')
         RangePop()
         RangePush("Togetherness")
         togetherstart = time.process_time()
@@ -1433,6 +1433,8 @@ try:
       print(f'{rank}: not generating consensus matrix...\n')
     RangePop() # Consensus
     RangePop() # K=
+    TEDS_END_TIME = time.time()
+    print(f'2. NEW VERSION ELAPSED time: {TEDS_END_TIME - TEDS_START_TIME}\n')
 
 except BaseException as e:
   traceback.print_tb(sys.exc_info()[2])
