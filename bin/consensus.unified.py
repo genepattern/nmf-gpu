@@ -303,11 +303,12 @@ def runnmf(myVcols=None,myVrows=None, mystartrow=None, myendrow=None,mystartcol=
   global H
   W = None
   H = None
-  mempool = cp.get_default_memory_pool()
-  mempool.free_all_blocks()
   # disable memory pool:
+  cp.cuda.set_allocator(rmm.rmm_cupy_allocator)
   #cp.cuda.set_allocator(None)
   #cp.cuda.runtime.setDevice(rank)
+  mempool = cp.get_default_memory_pool()
+  mempool.free_all_blocks()
   if debug:
     print(f'{rank}: cp.cuda.runtime.getDevice() ({cp.cuda.runtime.getDevice()})\n')
   # seed the PRNG
@@ -879,6 +880,13 @@ for deviceid in range(cp.cuda.runtime.getDeviceCount()):
     cp.cuda.runtime.setDevice(deviceid)
 #print(f'{rank}: after setDevice, cp.cuda.runtime.getDevice() {cp.cuda.runtime.getDevice()}\n')
 # https://docs.cupy.dev/en/stable/user_guide/memory.html
+pool = rmm.mr.PoolMemoryResource(
+    rmm.mr.CudaMemoryResource(),
+    initial_pool_size=2**30,
+    maximum_pool_size=2**32
+)
+rmm.mr.set_current_device_resource(pool)
+cp.cuda.set_allocator(rmm.rmm_cupy_allocator)
 mempool = cp.get_default_memory_pool()
 pinned_mempool = cp.get_default_pinned_memory_pool()
 lasttime = MPI.Wtime()
@@ -967,7 +975,6 @@ else:
 
 M = V.shape[1]
 #print("Read " + args.inputfile + "  " + str(V.shape))
-cp.cuda.set_allocator(rmm.rmm_cupy_allocator)
 
 if debug:
   print('M ({}) from ({})'.format(M,V))
