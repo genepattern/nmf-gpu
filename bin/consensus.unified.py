@@ -1240,11 +1240,8 @@ try:
         # linkage_mat = fastcluster.linkage(tchost)
         Agg = AgglomerativeClustering(n_clusters = k)
         labels = Agg.fit_predict(tchost)
-        print(tchost.shape)
         tchost = cp.append(tchost, labels.reshape((len(labels),1)), 1)
-        print(tchost.shape)
         tchost = tchost[tchost[:, -1].argsort()][:, :-1]
-        print(tchost.shape)
         assert(tchost.shape[0] == tchost.shape[1])
 
 
