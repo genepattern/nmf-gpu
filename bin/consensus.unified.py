@@ -674,6 +674,8 @@ def runnmf(myVcols=None,myVrows=None, mystartrow=None, myendrow=None,mystartcol=
             div = None
             if errordiff >= 0.0:
               RangePop()
+              RangePop()
+              RangePop()
               return(W,H)
             else:
               if debug:
@@ -767,6 +769,8 @@ def runnmf(myVcols=None,myVrows=None, mystartrow=None, myendrow=None,mystartcol=
               sum_WH = None
               mempool.free_all_blocks()
               RangePop()
+              RangePop()
+              RangePop()
               return(W,H)
             else:
               print(f'KL error is increasing before reaching klerrordiffmax ({klerrordiffmax}), no returning WH!')
@@ -831,6 +835,7 @@ def runnmf(myVcols=None,myVrows=None, mystartrow=None, myendrow=None,mystartcol=
             #cp.savetxt(os.path.basename(args.inputmatrix) + '_H.txt', H)
             if debug:
               print(f'{rank}: V: ({V})\n')
+            RangePop()
             RangePop()
             return(W,H)
         else:
