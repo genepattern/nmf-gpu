@@ -78,14 +78,14 @@ import h5py
 from fastdist import fastdist
 import fastcluster
 from cuml import AgglomerativeClustering
-from cuml.metrics import pairwise_distance
-from cuml.metrics import silhouette_score
+from cuml.metrics import pairwise_distances
+from cuml.metrics.cluster import silhouette_score
 
 # set data types
 RANDTYPE = cp.float32
 OTHERTYPE = cp.float32
 # seed count more than 255 won't work...
-TOGETHERTYPE = cp.uint8
+TOGETHERTYPE = cp.float32
 NUMPYTYPE = np.float32
 EPSILON = cp.finfo(OTHERTYPE).eps
 W = None
@@ -1240,8 +1240,12 @@ try:
         # linkage_mat = fastcluster.linkage(tchost)
         Agg = AgglomerativeClustering(n_clusters = k)
         labels = Agg.fit_predict(tchost)
-        tchost[:, -1] = labels
-        tchost = tchost[tchost[:, -1].argsort()][:, :-2]
+        print(tchost.shape)
+        tchost = cp.append(tchost, labels.reshape((len(labels),1)), 1)
+        print(tchost.shape)
+        tchost = tchost[tchost[:, -1].argsort()][:, :-1]
+        print(tchost.shape)
+        assert(tchost.shape[0] == tchost.shape[1])
 
 
 
@@ -1251,7 +1255,7 @@ try:
         # cdm = scipy.spatial.distance.pdist(tchost)
 
         ## pairwise distance using Rapids AI
-        cdm = pairwise_distance(tchost)
+        cdm = pairwise_distances(tchost)
 
         #cdm = cupyx.scipy.spatial.distance.pdist(together_counts)
         #tchostfloat = tchost.astype(NUMPYTYPE,)
@@ -1269,7 +1273,7 @@ try:
         #cophenetic_correlation_distance, cophenetic_distance_matrix = scipy.cluster.hierarchy.cophenet(linkage_mat, cdm)
 
         ## silhouette score using RAPIDS AI
-        score = cluster.silhouette_score(together_counts, labels)
+        score = silhouette_score(together_counts, labels)
 
         cophenetic_correlation_distance = 0
         cophenetic_distance_matrix= None
@@ -1287,7 +1291,7 @@ try:
           # sort the samples in the consensus matrix for the plot
           # put this back after using npy:
           print(f'{rank}: before DataFrame\n')
-          countsdf=pd.DataFrame(tchost, columns=columnnames, index=columnnames)
+          countsdf=pd.DataFrame(tchost.get(), columns=columnnames, index=columnnames)
           print(f'{rank}: before KMeans fit\n')
           kmeans = cluster.KMeans(n_clusters=2).fit(countsdf)
           labels = kmeans.labels_
