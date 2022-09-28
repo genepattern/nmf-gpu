@@ -77,6 +77,7 @@ import pathlib
 import h5py
 from fastdist import fastdist
 import fastcluster
+from cupy.cuda.nvtx import RangePush,RangePop
 
 # set data types
 RANDTYPE = cp.float32
@@ -87,7 +88,7 @@ NUMPYTYPE = np.float32
 EPSILON = cp.finfo(OTHERTYPE).eps
 W = None
 H = None
-
+TEDS_START_TIME=time.time()
 # https://docs.cupy.dev/en/stable/user_guide/kernel.html
 # kerneldiv = cp.ElementwiseKernel(
 #   'float32 x, float32 y', 'float32 z', 'z = x / y', 'kerneldiv')
@@ -279,6 +280,7 @@ def divide_almost_equally(arr, num_chunks):
 # For a given kfactor and seed, return W and H
 def runnmf(myVcols=None,myVrows=None, mystartrow=None, myendrow=None,mystartcol=None, myendcol=None, Wsendcountlist=None, Hsendcountlist=None,kfactor=2,checkinterval=10,threshold=40,maxiterations=2000,seed=1,debug=False, comm=None, parastrategy='serial', klerrordiffmax=None):
   thistime = MPI.Wtime()
+  RangePush("runnmf")
   #print(f'rank {rank}: finished all k loops: ({thistime - lasttime})\n')
   lasttime = thistime
   global W
@@ -634,6 +636,7 @@ def runnmf(myVcols=None,myVrows=None, mystartrow=None, myendrow=None,mystartcol=
             X_datakl = None
             div = None
             if errordiff >= 0.0:
+              RangePop()
               return(W,H)
             else:
               if debug:
@@ -722,6 +725,7 @@ def runnmf(myVcols=None,myVrows=None, mystartrow=None, myendrow=None,mystartcol=
               indices = None
               sum_WH = None
               mempool.free_all_blocks()
+              RangePop()
               return(W,H)
             else:
               print(f'KL error is increasing before reaching klerrordiffmax ({klerrordiffmax}), no returning WH!')
@@ -785,6 +789,7 @@ def runnmf(myVcols=None,myVrows=None, mystartrow=None, myendrow=None,mystartcol=
             #cp.savetxt(os.path.basename(args.inputmatrix) + '_H.txt', H)
             if debug:
               print(f'{rank}: V: ({V})\n')
+            RangePop()
             return(W,H)
         else:
           if debug:
@@ -805,6 +810,7 @@ def runnmf(myVcols=None,myVrows=None, mystartrow=None, myendrow=None,mystartcol=
   #KLFO.close()
   if debug:
     print(f'{rank}: iterationcount ({iterationcount})\n')
+  RangePop()
 
 # start of execution
 
@@ -1093,8 +1099,8 @@ try:
             W_gct.write_gct(f'{args.outputfileprefix}.W.k.{k}.seed.{seed}.gct')
           else:
             print(f'Sorry, not writing W and H, unless --outputfiletype=npy or h5 or gct.\n')
-        else:
-          print(f'--keepintermediatefiles not True, not writing out W and H\n')
+        #else:
+        #  print(f'--keepintermediatefiles not True, not writing out W and H\n')
         togetherstart = time.process_time()
         if debug:
           print(f'{rank}: before cp.asnumpy\n')
@@ -1166,6 +1172,7 @@ try:
       print(f'rank {rank}: finished all k loops: ({thistime - lasttime})\n')
       lasttime = thistime
     if not args.noconsensus:
+      RangePush("Consensus")
       consensusstart = time.process_time()
       print(f'{rank}: finished all seed trials for k={k}...\n')
       if rank == 0 or args.parastrategy in ('serial', 'kfactor'):
@@ -1189,6 +1196,7 @@ try:
       if debug:
         print(f'{rank}: after copying together_counts from GPU to host tchost\n')
       if args.inputfiletype in ('gct','h5') or attributes_dict != None:
+        RangePush("Cophenetic CC")
         # put this back in after done with npy inputfile
         if args.inputfiletype == 'gct':
           columnnames = gct_data.columnnames
@@ -1254,6 +1262,7 @@ try:
         print(f'{rank}: before cophenet\n')
         cophenetic_correlation_distance, cophenetic_distance_matrix = scipy.cluster.hierarchy.cophenet(linkage_mat, cdm)
         #cophenetic_correlation_distance, cophenetic_distance_matrix = scipy.cluster.hierarchy.cophenet(linkage_mat, cdmhost)
+        RangePop()
         cophend = time.process_time()
         print(f'{rank}: cophenet time: {cophend - pdistend}\n')
         #cophenetic_correlation_distance, cophenetic_distance_matrix = cupyx.scipy.cluster.hierarchy.cophenet(linkage_mat, cdm)
@@ -1323,8 +1332,11 @@ try:
       i_counts = None
       together_counts = None
       mempool.free_all_blocks()
+      RangePop()
     else:
       print(f'{rank}: not generating consensus matrix...\n')
+    TEDS_END_TIME = time.time()
+    print(f'2. NEW VERSION ELAPSED time: {TEDS_END_TIME - TEDS_START_TIME}\n')
 
 except BaseException as e:
   traceback.print_tb(sys.exc_info()[2])
