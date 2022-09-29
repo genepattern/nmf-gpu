@@ -314,6 +314,25 @@ def runnmf(myVcols=None,myVrows=None, mystartrow=None, myendrow=None,mystartcol=
     print(f'{rank}: cp.cuda.runtime.getDevice() ({cp.cuda.runtime.getDevice()})\n')
   # seed the PRNG
   cp.random.seed(seed)
+  safe_divide3 = cp.ElementwiseKernel(
+      'float32 x, float32 y',
+      'float32 z',
+      '''
+z=x/0.00000000001;
+if y != 0.0:;
+   z=x/y;
+''',
+      'safe_divide3')
+  safe_divide2 = cp.ElementwiseKernel(
+      'float32 x, float32 y',
+      'float32 z',
+      'z = x/y if y!=0.0 else x/0.0000000001;',
+      'safe_divide2')
+  safe_divide = cp.ElementwiseKernel(
+      'float32 x, float32 y',
+      'float32 z',
+      'z = (y/abs(y))*x/max(0.000000001,abs(y))',
+      'safe_divide')
   if debug:
     thistime = MPI.Wtime()
     print(f'rank {rank}: setup time: ({thistime - lasttime})\n')
@@ -386,7 +405,8 @@ def runnmf(myVcols=None,myVrows=None, mystartrow=None, myendrow=None,mystartcol=
     # https://numpy.org/doc/stable/reference/arrays.nditer.html
     # https://stackoverflow.com/questions/42190783/what-does-three-dots-in-python-mean-when-indexing-what-looks-like-a-number
     #with cp.nditer(myVcols, flags=['multi_index'], op_flags=['readwrite']) as it:
-    WHm = cp.divide(myVcols, WHm)
+    WHm = safe_divide(myVcols, WHm)
+    # TODO Do we need a nan_to_num here?
     mempool.free_all_blocks()
     RangePop()
     if debug:
@@ -414,14 +434,14 @@ def runnmf(myVcols=None,myVrows=None, mystartrow=None, myendrow=None,mystartcol=
     if debug:
       print(f'{rank}:  WTAUX.shape: {WTAUX.shape}, ACCW.shape: {ACCW.shape}\n')
       print(f'{rank}: ACCW: ({ACCW})\n')
-    WTAUXDIV = cp.divide(WTAUX.transpose(), ACCW)
+    WTAUXDIV = safe_divide(WTAUX.transpose(), ACCW)
     WTAUXDIV = WTAUXDIV.transpose()
     if debug:
       print(f'{rank}: WTAUXDIV: ({WTAUXDIV})\n')
     # H = H .* WTAUXDIV
-    Hnewnan = cp.multiply(H[:,mystartcol:myendcol + 1], WTAUXDIV)
-    Hnew = cp.nan_to_num(Hnewnan, copy=False, nan=EPSILON)
-    Hnewnan = None
+    Hnew = cp.multiply(H[:,mystartcol:myendcol + 1], WTAUXDIV)
+    #Hnew = cp.nan_to_num(Hnewnan, copy=False, nan=EPSILON)
+    #Hnewnan = None
     WTAUX = None
     WTAUXDIV = None
     ACCW = None
@@ -497,7 +517,7 @@ def runnmf(myVcols=None,myVrows=None, mystartrow=None, myendrow=None,mystartcol=
     WHm = cp.matmul(W[mystartrow:myendrow + 1,:], H)
     RangePop()
     RangePush("WH = Vrow ./ WH")
-    WHm = cp.divide(myVrows, WHm)
+    WHm = safe_divide(myVrows, WHm)
     RangePop()
     # from update_W notes:
     #  * Waux(BLN,Kp) = WH(BLN,Mp) * H'
@@ -508,15 +528,16 @@ def runnmf(myVcols=None,myVrows=None, mystartrow=None, myendrow=None,mystartcol=
       print(f'{rank}: HTAUX: ({HTAUX})\n')
     # * W(BLN,Kp) = W(BLN,Kp) .* Waux(BLN,Kp) ./ accum_h
     WWAUXnan = cp.multiply(W[mystartrow:myendrow + 1,:], HTAUX)
+    #TODO Can we get NaN's here?
     #WWAUX = cp.nan_to_num(WWAUXnan, copy=False, nan=EPSILON)
     #WWAUXnan = None
     HTAUX = None
     WHm = None
     if debug:
       print(f'{rank}: WWAUX: ({WWAUX})\n')
-    Wnewnan = cp.divide(WWAUXnan, ACCH)
-    Wnew = cp.nan_to_num(Wnewnan, copy=False, nan=EPSILON)
-    Wnewnan = None
+    Wnew = safe_divide(WWAUXnan, ACCH)
+    #Wnew = cp.nan_to_num(Wnewnan, copy=False, nan=EPSILON)
+    #Wnewnan = None
     WWAUX = None
     ACCH = None
     mempool.free_all_blocks()
