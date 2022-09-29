@@ -82,7 +82,7 @@ from cuml import AgglomerativeClustering
 from cuml.metrics import pairwise_distances
 from cuml.metrics.cluster import silhouette_score
 from cupy.cuda.nvtx import RangePush,RangePop
-import rmm
+import rmm #Rapids Memory Manager
 
 # set data types
 RANDTYPE = cp.float32
@@ -303,8 +303,9 @@ def runnmf(myVcols=None,myVrows=None, mystartrow=None, myendrow=None,mystartcol=
   global H
   W = None
   H = None
-  # disable memory pool:
+  #Use rapids memory manager
   cp.cuda.set_allocator(rmm.rmm_cupy_allocator)
+  # disable memory pool:
   #cp.cuda.set_allocator(None)
   #cp.cuda.runtime.setDevice(rank)
   mempool = cp.get_default_memory_pool()
@@ -880,6 +881,7 @@ for deviceid in range(cp.cuda.runtime.getDeviceCount()):
     cp.cuda.runtime.setDevice(deviceid)
 #print(f'{rank}: after setDevice, cp.cuda.runtime.getDevice() {cp.cuda.runtime.getDevice()}\n')
 # https://docs.cupy.dev/en/stable/user_guide/memory.html
+#Set the pool size for Rapids Memory Manager
 pool = rmm.mr.PoolMemoryResource(
     rmm.mr.CudaMemoryResource(),
     initial_pool_size=2**30,
@@ -887,6 +889,7 @@ pool = rmm.mr.PoolMemoryResource(
 )
 rmm.mr.set_current_device_resource(pool)
 cp.cuda.set_allocator(rmm.rmm_cupy_allocator)
+
 mempool = cp.get_default_memory_pool()
 pinned_mempool = cp.get_default_pinned_memory_pool()
 lasttime = MPI.Wtime()
