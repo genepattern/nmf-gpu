@@ -432,6 +432,12 @@ if y != 0.0:;
     if debug:
       print(f'{rank}:  WTAUX.shape: {WTAUX.shape}, ACCW.shape: {ACCW.shape}\n')
       print(f'{rank}: ACCW: ({ACCW})\n')
+    #TODO combine this multiply and divide
+    #     or switch the order of these 2 so the sum above and the multiply below
+    #     can execute without waiting.
+    #     That is, reforumlate H .* (WTt ./AccW)t
+    #     as    (H .* WT) ./ AccW
+    # Will that work?
     WTAUXDIV = safe_divide(WTAUX.transpose(), ACCW)
     WTAUXDIV = WTAUXDIV.transpose()
     if debug:
@@ -525,7 +531,7 @@ if y != 0.0:;
     if debug:
       print(f'{rank}: HTAUX: ({HTAUX})\n')
     # * W(BLN,Kp) = W(BLN,Kp) .* Waux(BLN,Kp) ./ accum_h
-    WWAUXnan = cp.multiply(W[mystartrow:myendrow + 1,:], HTAUX)
+    Wnew = cp.multiply(W[mystartrow:myendrow + 1,:], safe_divide(HTAUX,ACCH))
     #TODO Can we get NaN's here?
     #WWAUX = cp.nan_to_num(WWAUXnan, copy=False, nan=EPSILON)
     #WWAUXnan = None
@@ -533,7 +539,7 @@ if y != 0.0:;
     WHm = None
     if debug:
       print(f'{rank}: WWAUX: ({WWAUX})\n')
-    Wnew = safe_divide(WWAUXnan, ACCH)
+    #Wnew = safe_divide(WWAUX, ACCH)
     #Wnew = cp.nan_to_num(Wnewnan, copy=False, nan=EPSILON)
     #Wnewnan = None
     WWAUX = None
