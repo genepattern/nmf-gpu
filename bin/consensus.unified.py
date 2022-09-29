@@ -507,13 +507,13 @@ def runnmf(myVcols=None,myVrows=None, mystartrow=None, myendrow=None,mystartcol=
       print(f'{rank}: HTAUX: ({HTAUX})\n')
     # * W(BLN,Kp) = W(BLN,Kp) .* Waux(BLN,Kp) ./ accum_h
     WWAUXnan = cp.multiply(W[mystartrow:myendrow + 1,:], HTAUX)
-    WWAUX = cp.nan_to_num(WWAUXnan, copy=False, nan=EPSILON)
-    WWAUXnan = None
+    #WWAUX = cp.nan_to_num(WWAUXnan, copy=False, nan=EPSILON)
+    #WWAUXnan = None
     HTAUX = None
     WHm = None
     if debug:
       print(f'{rank}: WWAUX: ({WWAUX})\n')
-    Wnewnan = cp.divide(WWAUX, ACCH)
+    Wnewnan = cp.divide(WWAUXnan, ACCH)
     Wnew = cp.nan_to_num(Wnewnan, copy=False, nan=EPSILON)
     Wnewnan = None
     WWAUX = None
