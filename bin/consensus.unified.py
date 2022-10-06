@@ -81,7 +81,7 @@ from cuml import AgglomerativeClustering
 from cuml.metrics import pairwise_distances
 from cuml.metrics.cluster import silhouette_score
 from cupy.cuda.nvtx import RangePush,RangePop
-import rmm
+import rmm #Rapids Memory Manager
 
 # set data types
 RANDTYPE = cp.float32
@@ -301,8 +301,9 @@ def runnmf(myVcols=None,myVrows=None, mystartrow=None, myendrow=None,mystartcol=
   global H
   W = None
   H = None
-  # disable memory pool:
+  #Use rapids memory manager
   cp.cuda.set_allocator(rmm.rmm_cupy_allocator)
+  # disable memory pool:
   #cp.cuda.set_allocator(None)
   #cp.cuda.runtime.setDevice(rank)
   mempool = cp.get_default_memory_pool()
@@ -311,6 +312,25 @@ def runnmf(myVcols=None,myVrows=None, mystartrow=None, myendrow=None,mystartcol=
     print(f'{rank}: cp.cuda.runtime.getDevice() ({cp.cuda.runtime.getDevice()})\n')
   # seed the PRNG
   cp.random.seed(seed)
+  safe_divide3 = cp.ElementwiseKernel(
+      'float32 x, float32 y',
+      'float32 z',
+      '''
+z=x/0.00000000001;
+if y != 0.0:;
+   z=x/y;
+''',
+      'safe_divide3')
+  safe_divide2 = cp.ElementwiseKernel(
+      'float32 x, float32 y',
+      'float32 z',
+      'z = x/y if y!=0.0 else x/0.0000000001;',
+      'safe_divide2')
+  safe_divide = cp.ElementwiseKernel(
+      'float32 x, float32 y',
+      'float32 z',
+      'z = (y/abs(y))*x/max(0.000000001,abs(y))',
+      'safe_divide')
   if debug:
     thistime = MPI.Wtime()
     print(f'rank {rank}: setup time: ({thistime - lasttime})\n')
@@ -383,7 +403,8 @@ def runnmf(myVcols=None,myVrows=None, mystartrow=None, myendrow=None,mystartcol=
     # https://numpy.org/doc/stable/reference/arrays.nditer.html
     # https://stackoverflow.com/questions/42190783/what-does-three-dots-in-python-mean-when-indexing-what-looks-like-a-number
     #with cp.nditer(myVcols, flags=['multi_index'], op_flags=['readwrite']) as it:
-    WHm = cp.divide(myVcols, WHm)
+    WHm = safe_divide(myVcols, WHm)
+    # TODO Do we need a nan_to_num here?
     mempool.free_all_blocks()
     RangePop()
     if debug:
@@ -411,14 +432,20 @@ def runnmf(myVcols=None,myVrows=None, mystartrow=None, myendrow=None,mystartcol=
     if debug:
       print(f'{rank}:  WTAUX.shape: {WTAUX.shape}, ACCW.shape: {ACCW.shape}\n')
       print(f'{rank}: ACCW: ({ACCW})\n')
-    WTAUXDIV = cp.divide(WTAUX.transpose(), ACCW)
+    #TODO combine this multiply and divide
+    #     or switch the order of these 2 so the sum above and the multiply below
+    #     can execute without waiting.
+    #     That is, reforumlate H .* (WTt ./AccW)t
+    #     as    (H .* WT) ./ AccW
+    # Will that work?
+    WTAUXDIV = safe_divide(WTAUX.transpose(), ACCW)
     WTAUXDIV = WTAUXDIV.transpose()
     if debug:
       print(f'{rank}: WTAUXDIV: ({WTAUXDIV})\n')
     # H = H .* WTAUXDIV
-    Hnewnan = cp.multiply(H[:,mystartcol:myendcol + 1], WTAUXDIV)
-    Hnew = cp.nan_to_num(Hnewnan, copy=False, nan=EPSILON)
-    Hnewnan = None
+    Hnew = cp.multiply(H[:,mystartcol:myendcol + 1], WTAUXDIV)
+    #Hnew = cp.nan_to_num(Hnewnan, copy=False, nan=EPSILON)
+    #Hnewnan = None
     WTAUX = None
     WTAUXDIV = None
     ACCW = None
@@ -494,7 +521,7 @@ def runnmf(myVcols=None,myVrows=None, mystartrow=None, myendrow=None,mystartcol=
     WHm = cp.matmul(W[mystartrow:myendrow + 1,:], H)
     RangePop()
     RangePush("WH = Vrow ./ WH")
-    WHm = cp.divide(myVrows, WHm)
+    WHm = safe_divide(myVrows, WHm)
     RangePop()
     # from update_W notes:
     #  * Waux(BLN,Kp) = WH(BLN,Mp) * H'
@@ -504,16 +531,17 @@ def runnmf(myVcols=None,myVrows=None, mystartrow=None, myendrow=None,mystartcol=
     if debug:
       print(f'{rank}: HTAUX: ({HTAUX})\n')
     # * W(BLN,Kp) = W(BLN,Kp) .* Waux(BLN,Kp) ./ accum_h
-    WWAUXnan = cp.multiply(W[mystartrow:myendrow + 1,:], HTAUX)
-    WWAUX = cp.nan_to_num(WWAUXnan, copy=False, nan=EPSILON)
-    WWAUXnan = None
+    Wnew = cp.multiply(W[mystartrow:myendrow + 1,:], safe_divide(HTAUX,ACCH))
+    #TODO Can we get NaN's here?
+    #WWAUX = cp.nan_to_num(WWAUXnan, copy=False, nan=EPSILON)
+    #WWAUXnan = None
     HTAUX = None
     WHm = None
     if debug:
       print(f'{rank}: WWAUX: ({WWAUX})\n')
-    Wnewnan = cp.divide(WWAUX, ACCH)
-    Wnew = cp.nan_to_num(Wnewnan, copy=False, nan=EPSILON)
-    Wnewnan = None
+    #Wnew = safe_divide(WWAUX, ACCH)
+    #Wnew = cp.nan_to_num(Wnewnan, copy=False, nan=EPSILON)
+    #Wnewnan = None
     WWAUX = None
     ACCH = None
     mempool.free_all_blocks()
@@ -878,6 +906,7 @@ for deviceid in range(cp.cuda.runtime.getDeviceCount()):
     cp.cuda.runtime.setDevice(deviceid)
 #print(f'{rank}: after setDevice, cp.cuda.runtime.getDevice() {cp.cuda.runtime.getDevice()}\n')
 # https://docs.cupy.dev/en/stable/user_guide/memory.html
+#Set the pool size for Rapids Memory Manager
 pool = rmm.mr.PoolMemoryResource(
     rmm.mr.CudaMemoryResource(),
     initial_pool_size=2**30,
@@ -885,6 +914,7 @@ pool = rmm.mr.PoolMemoryResource(
 )
 rmm.mr.set_current_device_resource(pool)
 cp.cuda.set_allocator(rmm.rmm_cupy_allocator)
+
 mempool = cp.get_default_memory_pool()
 pinned_mempool = cp.get_default_pinned_memory_pool()
 lasttime = MPI.Wtime()
