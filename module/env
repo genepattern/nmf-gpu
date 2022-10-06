@@ -1,0 +1,16 @@
+module load slurm/expanse
+module load gpu/0.15.4
+module load singularitypro
+module load openmpi/4.0.4
+module load hdf5/1.10.7
+module load cuda/11.0.2 
+
+
+export CUDA_PATH=${CUDA_HOME}
+export PATH=/expanse/projects/mesirovlab/genepattern/modules/nmf-gpu-v2/install/bin:$PATH
+export CUPY_CACHE_DIR="/home/${USER}/.cupy/kernel_cache"
+export CUPY_ACCELERATORS=cub,cutensor
+export CUPY_GPU_MEMORY_LIMIT="100%"
+export CC=mpicc
+export HDF5_MPI="ON"
+
