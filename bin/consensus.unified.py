@@ -81,7 +81,7 @@ from cuml import AgglomerativeClustering
 from cuml.metrics import pairwise_distances
 from cuml.metrics.cluster import silhouette_score
 from cupy.cuda.nvtx import RangePush,RangePop
-import rmm
+import rmm #Rapids Memory Manager
 
 # set data types
 RANDTYPE = cp.float32
@@ -291,6 +291,34 @@ def divide_almost_equally(arr, num_chunks):
         arr_idx += 1
     return list(sets.values())
 
+def plot_matrix(df, title, filename, rowLabels, colLabels):
+    print("Incoming data is " + str(type(df)))
+    if isinstance(df, pd.DataFrame):
+        plot_counts = df.to_numpy()
+    elif isinstance(df,cp.ndarray ):
+        plot_counts = df.get()
+    elif isinstance(df,np.ndarray ):
+        plot_counts = df
+    else:
+        print("plot_counts was passed a " + str(type(df)))
+        plot_counts = df.get()
+    fig, ax = plt.subplots()
+    fig.set_figwidth(8)
+    fig.set_figheight(8)
+    im = plt.imshow(plot_counts, cmap='bwr', interpolation='nearest')
+
+    ax.set_xticks(np.arange(len(rowLabels)), labels=rowLabels)
+    ax.set_yticks(np.arange(len(colLabels)), labels=colLabels)
+
+    # Rotate the tick labels and set their alignment.
+    plt.setp(ax.get_xticklabels(), rotation=45, ha="right",  rotation_mode="anchor")
+
+    ax.set_title(title)
+    fig.tight_layout()
+    plt.savefig(filename)
+
+
+
 # For a given kfactor and seed, return W and H
 def runnmf(myVcols=None,myVrows=None, mystartrow=None, myendrow=None,mystartcol=None, myendcol=None, Wsendcountlist=None, Hsendcountlist=None,kfactor=2,checkinterval=10,threshold=40,maxiterations=2000,seed=1,debug=False, comm=None, parastrategy='serial', klerrordiffmax=None):
   RangePush("runnmf")
@@ -301,8 +329,9 @@ def runnmf(myVcols=None,myVrows=None, mystartrow=None, myendrow=None,mystartcol=
   global H
   W = None
   H = None
-  # disable memory pool:
+  #Use rapids memory manager
   cp.cuda.set_allocator(rmm.rmm_cupy_allocator)
+  # disable memory pool:
   #cp.cuda.set_allocator(None)
   #cp.cuda.runtime.setDevice(rank)
   mempool = cp.get_default_memory_pool()
@@ -311,6 +340,25 @@ def runnmf(myVcols=None,myVrows=None, mystartrow=None, myendrow=None,mystartcol=
     print(f'{rank}: cp.cuda.runtime.getDevice() ({cp.cuda.runtime.getDevice()})\n')
   # seed the PRNG
   cp.random.seed(seed)
+  safe_divide3 = cp.ElementwiseKernel(
+      'float32 x, float32 y',
+      'float32 z',
+      '''
+z=x/0.00000000001;
+if y != 0.0:;
+   z=x/y;
+''',
+      'safe_divide3')
+  safe_divide2 = cp.ElementwiseKernel(
+      'float32 x, float32 y',
+      'float32 z',
+      'z = x/y if y!=0.0 else x/0.0000000001;',
+      'safe_divide2')
+  safe_divide = cp.ElementwiseKernel(
+      'float32 x, float32 y',
+      'float32 z',
+      'z = (y/abs(y))*x/max(0.000000001,abs(y))',
+      'safe_divide')
   if debug:
     thistime = MPI.Wtime()
     print(f'rank {rank}: setup time: ({thistime - lasttime})\n')
@@ -383,7 +431,8 @@ def runnmf(myVcols=None,myVrows=None, mystartrow=None, myendrow=None,mystartcol=
     # https://numpy.org/doc/stable/reference/arrays.nditer.html
     # https://stackoverflow.com/questions/42190783/what-does-three-dots-in-python-mean-when-indexing-what-looks-like-a-number
     #with cp.nditer(myVcols, flags=['multi_index'], op_flags=['readwrite']) as it:
-    WHm = cp.divide(myVcols, WHm)
+    WHm = safe_divide(myVcols, WHm)
+    # TODO Do we need a nan_to_num here?
     mempool.free_all_blocks()
     RangePop()
     if debug:
@@ -411,14 +460,20 @@ def runnmf(myVcols=None,myVrows=None, mystartrow=None, myendrow=None,mystartcol=
     if debug:
       print(f'{rank}:  WTAUX.shape: {WTAUX.shape}, ACCW.shape: {ACCW.shape}\n')
       print(f'{rank}: ACCW: ({ACCW})\n')
-    WTAUXDIV = cp.divide(WTAUX.transpose(), ACCW)
+    #TODO combine this multiply and divide
+    #     or switch the order of these 2 so the sum above and the multiply below
+    #     can execute without waiting.
+    #     That is, reforumlate H .* (WTt ./AccW)t
+    #     as    (H .* WT) ./ AccW
+    # Will that work?
+    WTAUXDIV = safe_divide(WTAUX.transpose(), ACCW)
     WTAUXDIV = WTAUXDIV.transpose()
     if debug:
       print(f'{rank}: WTAUXDIV: ({WTAUXDIV})\n')
     # H = H .* WTAUXDIV
-    Hnewnan = cp.multiply(H[:,mystartcol:myendcol + 1], WTAUXDIV)
-    Hnew = cp.nan_to_num(Hnewnan, copy=False, nan=EPSILON)
-    Hnewnan = None
+    Hnew = cp.multiply(H[:,mystartcol:myendcol + 1], WTAUXDIV)
+    #Hnew = cp.nan_to_num(Hnewnan, copy=False, nan=EPSILON)
+    #Hnewnan = None
     WTAUX = None
     WTAUXDIV = None
     ACCW = None
@@ -494,7 +549,7 @@ def runnmf(myVcols=None,myVrows=None, mystartrow=None, myendrow=None,mystartcol=
     WHm = cp.matmul(W[mystartrow:myendrow + 1,:], H)
     RangePop()
     RangePush("WH = Vrow ./ WH")
-    WHm = cp.divide(myVrows, WHm)
+    WHm = safe_divide(myVrows, WHm)
     RangePop()
     # from update_W notes:
     #  * Waux(BLN,Kp) = WH(BLN,Mp) * H'
@@ -504,16 +559,17 @@ def runnmf(myVcols=None,myVrows=None, mystartrow=None, myendrow=None,mystartcol=
     if debug:
       print(f'{rank}: HTAUX: ({HTAUX})\n')
     # * W(BLN,Kp) = W(BLN,Kp) .* Waux(BLN,Kp) ./ accum_h
-    WWAUXnan = cp.multiply(W[mystartrow:myendrow + 1,:], HTAUX)
-    WWAUX = cp.nan_to_num(WWAUXnan, copy=False, nan=EPSILON)
-    WWAUXnan = None
+    Wnew = cp.multiply(W[mystartrow:myendrow + 1,:], safe_divide(HTAUX,ACCH))
+    #TODO Can we get NaN's here?
+    #WWAUX = cp.nan_to_num(WWAUXnan, copy=False, nan=EPSILON)
+    #WWAUXnan = None
     HTAUX = None
     WHm = None
     if debug:
       print(f'{rank}: WWAUX: ({WWAUX})\n')
-    Wnewnan = cp.divide(WWAUX, ACCH)
-    Wnew = cp.nan_to_num(Wnewnan, copy=False, nan=EPSILON)
-    Wnewnan = None
+    #Wnew = safe_divide(WWAUX, ACCH)
+    #Wnew = cp.nan_to_num(Wnewnan, copy=False, nan=EPSILON)
+    #Wnewnan = None
     WWAUX = None
     ACCH = None
     mempool.free_all_blocks()
@@ -878,13 +934,15 @@ for deviceid in range(cp.cuda.runtime.getDeviceCount()):
     cp.cuda.runtime.setDevice(deviceid)
 #print(f'{rank}: after setDevice, cp.cuda.runtime.getDevice() {cp.cuda.runtime.getDevice()}\n')
 # https://docs.cupy.dev/en/stable/user_guide/memory.html
+#Set the pool size for Rapids Memory Manager
 pool = rmm.mr.PoolMemoryResource(
     rmm.mr.CudaMemoryResource(),
-    initial_pool_size=2**30,
-    maximum_pool_size=2**32
+    initial_pool_size=2**32,
+    maximum_pool_size=2**35
 )
 rmm.mr.set_current_device_resource(pool)
 cp.cuda.set_allocator(rmm.rmm_cupy_allocator)
+
 mempool = cp.get_default_memory_pool()
 pinned_mempool = cp.get_default_pinned_memory_pool()
 lasttime = MPI.Wtime()
@@ -1273,9 +1331,16 @@ try:
           columnnames = attributes_dict['column_names']
         else:
           print(f'should never get here!\n')
+
+        # grab a copy that we will sort after the AgglomerativeClustering is run
+        countsdf2 = pd.DataFrame(tchost.get(), columns = columnnames, index=columnnames)
+
+        # print out the unsorted consensus matrix.  Not sure if this is worth doing since we will 
+        # priint the sorted one later after clustering
         if (rank == 0 or args.parastrategy in ('serial', 'kfactor')) and (args.outputfiletype == 'gct'):
           consensus_gct = NP_GCT(data=tchost.get(), rowNames=columnnames, colNames=columnnames)
           consensus_gct.write_gct('{}.consensus.k.{}.gct'.format(args.outputfileprefix,k))
+
         elif (rank == 0 or args.parastrategy in ('serial', 'kfactor')) and (args.outputfiletype == 'npy'):
           write_npy(tchost, f'{args.outputfileprefix}.consensus.k.{k}.npy', rowNames=columnnames, colNames=columnnames, rowDescrip=columnnames, datashape = [M, M])
         elif args.outputfiletype == 'h5':
@@ -1311,15 +1376,50 @@ try:
         RangePush("Agglomerative")
         Agg = AgglomerativeClustering(n_clusters = k)
         labels = Agg.fit_predict(tchost)
-        RangePush("Append column")
-        tchost = cp.append(tchost, labels.reshape((len(labels),1)), 1)
-        RangePop()
-        RangePush("Sort")
-        tchost = tchost[tchost[:, -1].argsort()][:, :-1]
-        RangePop()
-        assert(tchost.shape[0] == tchost.shape[1])
-        RangePop()
 
+        agglabels = cp.asnumpy(labels)
+
+        ##### JTL 10252022-B
+ 
+        namedf = pd.DataFrame(labels.get(), index = columnnames)
+        # and then sort columns by the clusters, and pull the names as a list
+        sortedNames = namedf.sort_values(0).index
+        countsdf3 = countsdf2[sortedNames]
+
+        # create a tuple since gct is indexed on name and descrip, and then reorder
+        #sortedNamesAndDescrip = [(i,i) for i in sortedNames]
+        # now sort the rows by the cluster membership labels
+        countsdf4 = countsdf3.reindex(sortedNames, axis=0)
+        sorted_i_counts = countsdf4.to_numpy()
+
+        if rank == 0 or args.parastrategy in ('serial', 'kfactor'):
+            plot_matrix(sorted_i_counts, "Consensus Matrix, k="+str(k), '{}.consensus.k.{}.pdf'.format(args.outputfileprefix,k), sortedNames, sortedNames)
+       
+        if rank == 0 and args.outputfiletype == 'gct':
+          sc = NP_GCT(data=sorted_i_counts, rowNames=sortedNames, colNames=sortedNames )
+          sc.write_gct('{}.consensus.k.{}.sorted.gct'.format(args.outputfileprefix,k))
+
+        elif rank == 0 and args.outputfiletype == 'npy':
+          print(f'{rank}: before sc.write_npy\n')
+          write_npy(sorted_i_counts.get(), f'{args.outputfileprefix}.consensus.k.{k}.sorted.npy', rowNames=sortedNames, colNames=sortedNames, rowDescrip=sortedNames, datashape = [M, M])
+        elif rank == 0 and args.outputfiletype == 'h5':
+          print(f'{rank}: before write_h5 {args.outputfileprefix}.consensus.k.{k}\n')
+          print(f'sortedNames {sortedNames}\n')
+          write_h5(sorted_i_counts, f'{args.outputfileprefix}.consensus.k.{k}.sorted', rowNames=sortedNames, colNames=sortedNames, rowDescrip=sortedNames, datashape = [M, M], comm_world=MPI.COMM_WORLD)
+
+
+        #### END  JTL 10252022-B
+
+        ################ JTL 10252022-A comment out below since the sort is not keeping track of row names, move to a dataframe instead
+        #RangePush("Append column")
+        #tchost = cp.append(tchost, labels.reshape((len(labels),1)), 1)
+        #RangePop()
+        #RangePush("Sort")
+        #tchost = tchost[tchost[:, -1].argsort()][:, :-1]
+        #RangePop()
+        #assert(tchost.shape[0] == tchost.shape[1])
+        #RangePop()
+        ################ JTL 10252022-A - end commented out
 
 
         linkageend = time.process_time()
@@ -1348,7 +1448,7 @@ try:
         ## silhouette score using RAPIDS AI
         score = silhouette_score(together_counts, labels)
 
-        cophenetic_correlation_distance = 0
+        cophenetic_correlation_distance = score
         cophenetic_distance_matrix= None
 
         #cophenetic_correlation_distance, cophenetic_distance_matrix = scipy.cluster.hierarchy.cophenet(linkage_mat, cdmhost)
@@ -1356,67 +1456,49 @@ try:
         print(f'{rank}: cophenet time: {cophend - pdistend}\n')
         #cophenetic_correlation_distance, cophenetic_distance_matrix = cupyx.scipy.cluster.hierarchy.cophenet(linkage_mat, cdm)
         print(f'k={rank}, silhouette distance: ({score})')
-        #print('k={}, cophenetic_correlation_distance: ({})'.format(k,cophenetic_correlation_distance))
         print(f'{rank}: cophenetic correlation distance calculatioin: {time.process_time() - cophstart}\n');
         # do other postprocessing
-        namedf = pd.DataFrame(labels.get(), index = columnnames)
-        sortedNames = namedf.sort_values(0).index
-        if rank == 0 and args.outputfiletype == 'gct':
-          print(f'{rank}: before sc = NP_GCT\n')
-          sc = NP_GCT(data=tchost.get(), rowNames=sortedNames, colNames=sortedNames )
-          print(f'{rank}: before sc.write_gct\n')
-          sc.write_gct('{}.consensus.agg.{}.sorted.gct'.format(args.outputfileprefix,k))
+        
+        #namedf = pd.DataFrame(labels.get(), index = columnnames)
+        #sortedNames = namedf.sort_values(0).index
+
         postprocessstart = time.process_time()
-        if debug:
-          # sort the samples in the consensus matrix for the plot
-          # put this back after using npy:
-          print(f'{rank}: before DataFrame\n')
-          countsdf=pd.DataFrame(tchost.get(), columns=columnnames, index=columnnames)
-          print(f'{rank}: before KMeans fit\n')
-          kmeans = cluster.KMeans(n_clusters=2).fit(countsdf)
-          labels = kmeans.labels_
+        ##### JTL 10252022-D remove the sorting that was not good.  Writing the sorted matrices now happens earlier (above)
 
-          namedf = pd.DataFrame(labels, index = columnnames)
-          sortedNames = namedf.sort_values(0).index
+        #if debug:
+        # sort the samples in the consensus matrix for the plot
+        # put this back after using npy:
+        #print(f'{rank}: before DataFrame\n')
+        #countsdf=pd.DataFrame(tchost.get(), columns=columnnames, index=columnnames)
+        #print(f'{rank}: before KMeans fit\n')
+        #kmeans = cluster.KMeans(n_clusters=2).fit(countsdf)
+        #labels = kmeans.labels_
 
-          countsdf = countsdf[sortedNames]
-          countsdf = countsdf.reindex(sortedNames)
-          print(f'{rank}: before to_numpy\n')
-          sorted_i_counts = countsdf.to_numpy()
-          if rank == 0 and args.outputfiletype == 'gct':
-            print(f'{rank}: before sc = NP_GCT\n')
-            sc = NP_GCT(data=sorted_i_counts.get(), rowNames=sortedNames, colNames=sortedNames )
-            print(f'{rank}: before sc.write_gct\n')
-            sc.write_gct('{}.consensus.k.{}.sorted.gct'.format(args.outputfileprefix,k))
-          elif rank == 0 and args.outputfiletype == 'npy':
-            print(f'{rank}: before sc.write_npy\n')
-            write_npy(sorted_i_counts.get(), f'{args.outputfileprefix}.consensus.k.{k}.sorted.npy', rowNames=sortedNames, colNames=sortedNames, rowDescrip=sortedNames, datashape = [M, M])
-          elif rank == 0 and args.outputfiletype == 'h5':
-            print(f'{rank}: before write_h5 {args.outputfileprefix}.consensus.k.{k}\n')
-            print(f'sortedNames {sortedNames}\n')
-            write_h5(sorted_i_counts, f'{args.outputfileprefix}.consensus.k.{k}.sorted', rowNames=sortedNames, colNames=sortedNames, rowDescrip=sortedNames, datashape = [M, M], comm_world=MPI.COMM_WORLD)
+        #namedf = pd.DataFrame(labels, index = columnnames)
+        #sortedNames = namedf.sort_values(0).index
+        #countsdf = countsdf[sortedNames]
+        #countsdf = countsdf.reindex(sortedNames)
 
-          if rank == 0 or args.parastrategy in ('serial', 'kfactor'):
-            print(f'{rank}: before subplots\n')
-            fig, ax = plt.subplots()
-            fig.set_figwidth(8)
-            fig.set_figheight(8)
-            print(f'{rank}: before imshow\n')
-            im = plt.imshow(sorted_i_counts, cmap='bwr', interpolation='nearest')
+        #print(f'{rank}: before to_numpy\n')
+        #sorted_i_counts = countsdf.to_numpy()
 
-            ax.set_xticks(np.arange(len(sortedNames)), labels=sortedNames)
-            ax.set_yticks(np.arange(len(sortedNames)), labels=sortedNames)
+        #if rank == 0 and args.outputfiletype == 'gct':
+        #  print(f'{rank}: before sc = NP_GCT\n')
+        #  sc = NP_GCT(data=sorted_i_counts, rowNames=sortedNames, colNames=sortedNames )
+        #  print(f'{rank}: before sc.write_gct\n')
+        #  sc.write_gct('{}.consensus.k.{}.sorted.gct'.format(args.outputfileprefix,k))
+        #
+        #elif rank == 0 and args.outputfiletype == 'npy':
+        #  print(f'{rank}: before sc.write_npy\n')
+        #  write_npy(sorted_i_counts.get(), f'{args.outputfileprefix}.consensus.k.{k}.sorted.npy', rowNames=sortedNames, colNames=sortedNames, rowDescrip=sortedNames, datashape = [M, M])
+        #elif rank == 0 and args.outputfiletype == 'h5':
+        #  print(f'{rank}: before write_h5 {args.outputfileprefix}.consensus.k.{k}\n')
+        #  print(f'sortedNames {sortedNames}\n')
+        #  write_h5(sorted_i_counts, f'{args.outputfileprefix}.consensus.k.{k}.sorted', rowNames=sortedNames, colNames=sortedNames, rowDescrip=sortedNames, datashape = [M, M], comm_world=MPI.COMM_WORLD)
 
-            # Rotate the tick labels and set their alignment.
-            plt.setp(ax.get_xticklabels(), rotation=45, ha="right",  rotation_mode="anchor")
-
-            ax.set_title("Consensus Matrix, k="+str(k))
-            fig.tight_layout()
-
-            plt.savefig('{}.consensus.k.{}.pdf'.format(args.outputfileprefix,k))
-            with open('{}.cophenetic.txt'.format(args.outputfileprefix), 'w') as file:
-                file.write(str(k) + "\t" + str(cophenetic_correlation_distance) + "\n")
         if rank == 0 or args.parastrategy in ('serial', 'kfactor'):
+          with open('{}.cophenetic.{}.txt'.format(args.outputfileprefix,k), 'w') as file:
+              file.write(str(k) + "\t" + str(cophenetic_correlation_distance) + "\n")
           if debug:
             print(f'{rank}: xxxxxxxxxxxxxxx Elapsed time for k={k}, all postprocessing : {time.process_time() - postprocessstart}\n');
       if rank == 0 or args.parastrategy in ('serial', 'kfactor'):
