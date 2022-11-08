@@ -317,6 +317,40 @@ def plot_matrix(df, title, filename, rowLabels, colLabels):
     fig.tight_layout()
     plt.savefig(filename)
 
+def k_vs_correlation(files_to_find, kval):
+    """
+    Plots k v.s. correlation
+    file_to_find --> total number of k-values to iterate through and find
+    kval --> actual maximum k value
+    """
+    x = []
+    y = []
+    for i in range(files_to_find):
+        fp = f'k_{i}_vs_score.txt'
+        print(f"does fp {fp} exist? {os.path.exists(fp)}")
+        if os.path.exists(fp):
+            with open(fp, 'r') as file:
+                line = file.readline().split(' ')
+                print(f'type of line: {line}')
+                x_, y_ = int(line[0]), float(line[1])
+                print(f"X VALUE IS: {x_} Y VALUE IS: {y_}")
+                x.append(x_)
+                y.append(y_)
+            file.close()
+            os.remove(fp)
+    print(f"k_values {x}, y_values {y}")
+    fig = plt.figure()
+    plt.figure().clear()
+    plt.scatter(x, y)
+    plt.plot(x, y)
+    plt.title(f'plot of max k = {kval} with corresponding silhouette scores')
+    plt.xticks(x)
+    plt.xlabel('k')
+    plt.ylabel('Silhouette Score')
+    plt.savefig('k_plots.png')
+
+
+
 
 
 # For a given kfactor and seed, return W and H
@@ -844,7 +878,7 @@ if y != 0.0:;
             sum_WH = None
             mempool.free_all_blocks()
             #return(W,H)
-          RangePop()  
+          RangePop()
         #end else if parastrategy != 'inputmatrix':
         WHkl = None
         WH_datakl = None
@@ -1335,7 +1369,7 @@ try:
         # grab a copy that we will sort after the AgglomerativeClustering is run
         countsdf2 = pd.DataFrame(tchost.get(), columns = columnnames, index=columnnames)
 
-        # print out the unsorted consensus matrix.  Not sure if this is worth doing since we will 
+        # print out the unsorted consensus matrix.  Not sure if this is worth doing since we will
         # priint the sorted one later after clustering
         if (rank == 0 or args.parastrategy in ('serial', 'kfactor')) and (args.outputfiletype == 'gct'):
           consensus_gct = NP_GCT(data=tchost.get(), rowNames=columnnames, colNames=columnnames)
@@ -1380,7 +1414,7 @@ try:
         agglabels = cp.asnumpy(labels)
 
         ##### JTL 10252022-B
- 
+
         namedf = pd.DataFrame(labels.get(), index = columnnames)
         # and then sort columns by the clusters, and pull the names as a list
         sortedNames = namedf.sort_values(0).index
@@ -1394,7 +1428,8 @@ try:
 
         if rank == 0 or args.parastrategy in ('serial', 'kfactor'):
             plot_matrix(sorted_i_counts, "Consensus Matrix, k="+str(k), '{}.consensus.k.{}.pdf'.format(args.outputfileprefix,k), sortedNames, sortedNames)
-       
+
+
         if rank == 0 and args.outputfiletype == 'gct':
           sc = NP_GCT(data=sorted_i_counts, rowNames=sortedNames, colNames=sortedNames )
           sc.write_gct('{}.consensus.k.{}.sorted.gct'.format(args.outputfileprefix,k))
@@ -1456,9 +1491,12 @@ try:
         print(f'{rank}: cophenet time: {cophend - pdistend}\n')
         #cophenetic_correlation_distance, cophenetic_distance_matrix = cupyx.scipy.cluster.hierarchy.cophenet(linkage_mat, cdm)
         print(f'k={rank}, silhouette distance: ({score})')
-        print(f'{rank}: cophenetic correlation distance calculatioin: {time.process_time() - cophstart}\n');
+        with open(f'k_{k}_vs_score.txt', 'a') as file:
+            file.write(f"{k} {score}")
+        file.close()
+        print(f'{rank}: cophenetic correlation distance calculation: {time.process_time() - cophstart}\n');
         # do other postprocessing
-        
+
         #namedf = pd.DataFrame(labels.get(), index = columnnames)
         #sortedNames = namedf.sort_values(0).index
 
@@ -1518,6 +1556,7 @@ try:
     TEDS_END_TIME = time.time()
     print(f'2. NEW VERSION ELAPSED time: {TEDS_END_TIME - TEDS_START_TIME}\n')
 
+    # k_vs_correlation(20, maxk)
 except BaseException as e:
   traceback.print_tb(sys.exc_info()[2])
   print(f'{rank}: Unexpected error:', sys.exc_info()[0])
@@ -1531,6 +1570,7 @@ except BaseException as e:
         shutil.rmtree(f'{JOBDIR}/{kdir}')
   raise e
 
+k_vs_correlation(20, maxk)
 # cleanup may fail if out of memory or exceeded wallclock limit
 #if args.keepintermediatefiles == True:
 #  print(f'{rank}: keeping {JOBDIR}/k.*\n')
