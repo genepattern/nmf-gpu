@@ -77,7 +77,8 @@ import pathlib
 import h5py
 from fastdist import fastdist
 import fastcluster
-from cuml import AgglomerativeClustering
+#from cuml import AgglomerativeClustering
+from cuml import KMeans
 from cuml.metrics import pairwise_distances
 from cuml.metrics.cluster import silhouette_score
 from cupy.cuda.nvtx import RangePush,RangePop
@@ -292,6 +293,16 @@ def divide_almost_equally(arr, num_chunks):
     return list(sets.values())
 
 def plot_matrix(df, title, filename, rowLabels, colLabels):
+    # skip the plots if the matrix is too big, lets assume 100x100 is the max to plot
+    if (len(rowLabels) >100):
+        print("Skipping plot, too many rows for a usable plot")
+        return
+
+    if (len(colLabels) > 100 ):
+        print("Skipping plot, too many cols for a usable plot")
+        return
+
+    
     print("Incoming data is " + str(type(df)))
     if isinstance(df, pd.DataFrame):
         plot_counts = df.to_numpy()
@@ -370,6 +381,8 @@ def runnmf(myVcols=None,myVrows=None, mystartrow=None, myendrow=None,mystartcol=
   #cp.cuda.runtime.setDevice(rank)
   mempool = cp.get_default_memory_pool()
   mempool.free_all_blocks()
+
+
   if debug:
     print(f'{rank}: cp.cuda.runtime.getDevice() ({cp.cuda.runtime.getDevice()})\n')
   # seed the PRNG
@@ -430,13 +443,8 @@ if y != 0.0:;
   oldserialerror = None
   oldmpierror = None
   #KLFO = open('kldiv.tsv', 'w')
-  if debug:
-    print(f'{rank}:{iterationcount} before iterating, mempool.used_bytes(): {mempool.used_bytes()}\n')
-    print(f'{rank}:{iterationcount} before iterating, mempool.total_bytes(): {mempool.total_bytes()}\n')
   while iterationcount < maxiterations:
     if debug:
-      print(f'{rank}:{iterationcount} start of iteration, mempool.used_bytes(): {mempool.used_bytes()}\n')
-      print(f'{rank}:{iterationcount} start of iteration, mempool.total_bytes(): {mempool.total_bytes()}\n')
       thistime = MPI.Wtime()
       print(f'rank {rank}: random W and H creation time: ({thistime - lasttime})\n')
       lasttime = thistime
@@ -513,9 +521,6 @@ if y != 0.0:;
     ACCW = None
     mempool.free_all_blocks()
     RangePop()
-    if debug:
-      print(f'{rank}:{iterationcount} after update Hnew, mempool.used_bytes(): {mempool.used_bytes()}\n')
-      print(f'{rank}:{iterationcount} after update Hnew, mempool.total_bytes(): {mempool.total_bytes()}\n')
     # sync H to all devices
     if debug:
       thistime = MPI.Wtime()
@@ -565,9 +570,6 @@ if y != 0.0:;
       lasttime = thistime
     Ht = H.transpose()
     if debug:
-      print(f'{rank}:{iterationcount} after sync H, mempool.used_bytes(): {mempool.used_bytes()}\n')
-      print(f'{rank}:{iterationcount} after sync H, mempool.total_bytes(): {mempool.total_bytes()}\n')
-    if debug:
       print(f'{rank}: before update W\n')
     # update W
     # * WH(BLN,Mp) = W(BLN,Kp) * H
@@ -599,8 +601,6 @@ if y != 0.0:;
     #WWAUXnan = None
     HTAUX = None
     WHm = None
-    if debug:
-      print(f'{rank}: WWAUX: ({WWAUX})\n')
     #Wnew = safe_divide(WWAUX, ACCH)
     #Wnew = cp.nan_to_num(Wnewnan, copy=False, nan=EPSILON)
     #Wnewnan = None
@@ -613,8 +613,6 @@ if y != 0.0:;
       print(f'{rank}: Hnew: ({Hnew}), Hnew.shape: {Hnew.shape}\n')
       print(f'{rank}: Wnew: ({Wnew}), Wnew.shape: {Wnew.shape}\n')
       print(f'{rank}: Wnew: ({Wnew})\n')
-      print(f'{rank}:{iterationcount} after update Wnew, mempool.used_bytes(): {mempool.used_bytes()}\n')
-      print(f'{rank}:{iterationcount} after update Wnew, mempool.total_bytes(): {mempool.total_bytes()}\n')
     # sync W to all devices
     if debug:
       thistime = MPI.Wtime()
@@ -643,9 +641,6 @@ if y != 0.0:;
       H = Hnew
       W = Wnew
     RangePop()
-    if debug:
-      print(f'{rank}:{iterationcount} after sync W, mempool.used_bytes(): {mempool.used_bytes()}\n')
-      print(f'{rank}:{iterationcount} after sync W, mempool.total_bytes(): {mempool.total_bytes()}\n')
     if debug:
       print(f'{rank}: after Allgatherv, W.shape {W.shape}\n')
       print(f'{rank}: after Allgatherv, W {W}\n')
@@ -678,9 +673,6 @@ if y != 0.0:;
     if iterationcount > checkinterval and divmod(iterationcount, checkinterval)[1] == 0:
       classstart = time.process_time()
       # check KL divergence
-      if debug:
-        print(f'{rank}:{iterationcount} start classification check, mempool.used_bytes(): {mempool.used_bytes()}\n')
-        print(f'{rank}:{iterationcount} start classification check, mempool.total_bytes(): {mempool.total_bytes()}\n')
       if not klerrordiffmax == None:
         if debug:
           print(f'{rank}: checking KL divergence, since klerrordiffmax: ({klerrordiffmax})\n')
@@ -764,6 +756,7 @@ if y != 0.0:;
             WH_datakl = None
             X_datakl = None
             div = None
+            mempool.free_all_blocks()
             if errordiff >= 0.0:
               RangePop()
               RangePop()
@@ -783,6 +776,7 @@ if y != 0.0:;
             WH_datakl = None
             X_datakl = None
             div = None
+            mempool.free_all_blocks()
           RangePop()
         #end else if parastrategy == 'inputmatrix':
         else:
@@ -838,6 +832,7 @@ if y != 0.0:;
             print(f'{rank}: oldserialerror: {oldserialerror}\n')
           if type(oldserialerror) == type(None):
             errordiff = None
+            mempool.free_all_blocks()
             oldserialerror = error
           else:
             errordiff = oldserialerror - error
@@ -938,9 +933,6 @@ if y != 0.0:;
               print(f'{rank}: 2. type(oldclassification) != type(newclassification)\n')
           oldclassification = newclassification
           sameclassificationcount = 0
-      if debug:
-        print(f'{rank}:{iterationcount} end classification check, mempool.used_bytes(): {mempool.used_bytes()}\n')
-        print(f'{rank}:{iterationcount} end start classification check, mempool.total_bytes(): {mempool.total_bytes()}\n')
     RangePop()
     thistime = MPI.Wtime()
     if debug:
@@ -969,12 +961,25 @@ for deviceid in range(cp.cuda.runtime.getDeviceCount()):
 #print(f'{rank}: after setDevice, cp.cuda.runtime.getDevice() {cp.cuda.runtime.getDevice()}\n')
 # https://docs.cupy.dev/en/stable/user_guide/memory.html
 #Set the pool size for Rapids Memory Manager
+
 pool = rmm.mr.PoolMemoryResource(
     rmm.mr.CudaMemoryResource(),
-    initial_pool_size=2**32,
-    maximum_pool_size=2**35
+    initial_pool_size=2**35 - 2000000000,
+    maximum_pool_size=2**35 - 2000000000
 )
-rmm.mr.set_current_device_resource(pool)
+
+
+# if not debugging memory, uncomment the following line and comment the 3 TrackingResourceAdaptor lines below
+# rmm.mr.set_current_device_resource(pool)
+
+# for debugging
+poolTrack = rmm.mr.TrackingResourceAdaptor(pool, True)
+rmm.enable_logging(log_file_name="rmm_tracking_log")
+rmm.mr.enable_logging(log_file_name="rmm_mr_tracking_log")
+rmm.mr.set_current_device_resource(poolTrack)
+
+
+
 cp.cuda.set_allocator(rmm.rmm_cupy_allocator)
 
 mempool = cp.get_default_memory_pool()
@@ -1014,19 +1019,12 @@ maxk = int(args.maxk)
 seed_list = range(int(args.startseed), int(args.startseed) + int(args.seeds))
 JOBDIR = args.jobdir
 debug = args.verbose
-if debug:
-  print(f'mempool.used_bytes(): ({mempool.used_bytes()})\n')
-  print(f'mempool.total_bytes(): ({mempool.total_bytes()})\n')
-  print(f'mempool.n_free_blocks(): ({mempool.n_free_blocks()})\n')
 if args.inputfiletype == 'h5':
   print(f'Sorry, HDF5 format not supported, yet!\n')
   sys.exit(1)
 if args.outputfiletype == 'h5':
   print(f'Sorry, HDF5 format not supported, yet!\n')
   sys.exit(1)
-if debug:
-  print(f'{rank}: before reading input, mempool.used_bytes(): {mempool.used_bytes()}\n')
-  print(f'{rank}: before reading input, mempool.total_bytes(): {mempool.total_bytes()}\n')
 if args.inputfiletype in ('gct',):
   # read INPUTFILE as gct file
   if debug:
@@ -1062,6 +1060,7 @@ if args.klerrordiffmax:
   klerrordiffmax = NUMPYTYPE(args.klerrordiffmax)
 else:
   klerrordiffmax = None
+  mempool.free_all_blocks()
 
 M = V.shape[1]
 #print("Read " + args.inputfile + "  " + str(V.shape))
@@ -1075,6 +1074,12 @@ if debug:
 k_values = np.arange(mink, maxk + 1)
 N = V.shape[0]
 M = V.shape[1]
+
+print("num tasks is " + str(numtasks))
+print("COMM num tasks is " + str(comm.Get_size()))
+print ("COMM rank is " + str(comm.Get_rank()))
+
+
 if debug:
   DEBUGOPTION = '--verbose'
   DEBUGVAL = True
@@ -1146,8 +1151,6 @@ try:
     thistime = MPI.Wtime()
     print(f'from beginning to start of for k loop: ({thistime - lasttime})\n')
     lasttime = thistime
-    print(f'{rank}: before iterating over k, mempool.used_bytes(): {mempool.used_bytes()}\n')
-    print(f'{rank}: before iterating over k, mempool.total_bytes(): {mempool.total_bytes()}\n')
 
   # iterate over kfactors
   kdirs = []
@@ -1158,9 +1161,6 @@ try:
     if args.keepintermediatefiles == True:
       os.makedirs(f'k.{k}', exist_ok=True)
     kstart = time.process_time()
-    if debug:
-      print(f'{rank}: k {k} start of k iteration, mempool.used_bytes(): {mempool.used_bytes()}\n')
-      print(f'{rank}: k {k} start of k iteration, mempool.total_bytes(): {mempool.total_bytes()}\n')
     myVcols = cp.array(V[:,mystartcol:myendcol + 1])
     myVrows = cp.array(V[mystartrow:myendrow + 1,:])
     if debug:
@@ -1191,24 +1191,36 @@ try:
     else:
       Hsendcountlist = None
       Wsendcountlist = None
+      mempool.free_all_blocks()
     if debug:
       print(f'{rank}: mystartrow: {mystartrow}, myendrow: {myendrow}, mystartcol: {mystartcol}, myendcol: {myendcol}, myrowcount: {myrowcount}, mycolcount: {mycolcount}, Hsendcountlist: {Hsendcountlist}, Wsendcountlist: {Wsendcountlist}\n')
     # allocate the consensus matrix on device
+    print("Allocating a big square matrix of size: "+str(M)+" x " + str(M))
+    print ("COMM rank is " + str(comm.Get_rank()) + " of " + str(comm.Get_size()))
+
     together_counts = cp.zeros((M,M),dtype=TOGETHERTYPE)
+
+
     # iterate over seeds
+    print("seed list type is " + str(type(seed_list)))
     for seed in seed_list:
       start = time.process_time()
       os.chdir(JOBDIR)
       if args.keepintermediatefiles == True:
         os.makedirs(f'k.{k}/seed.{seed}', exist_ok=True)
         os.chdir(f'k.{k}/seed.{seed}')
-      if debug:
-        print(f'{rank}: doing k={k}, seed={seed}\n')
-        print(f'{rank}: k {k} : seed {seed} start of seed iteration, mempool.used_bytes(): {mempool.used_bytes()}\n')
-        print(f'{rank}: k {k} : seed {seed} start of seed iteration, mempool.total_bytes(): {mempool.total_bytes()}\n')
+      #if debug:
+      print("Line 1221 c " + str(seed)+ " A=" + str(poolTrack.get_allocated_bytes()) + "   COMM rank is " + str(comm.Get_rank()) + " of " + str(comm.Get_size()))
+      print("Line 1221 c " + str(seed)+ " Allocations = " + str(poolTrack.get_outstanding_allocations_str()))
+      poolTrack.log_outstanding_allocations()
+
+ 
+      print(f'{rank}: doing k={k}, seed={seed}\n')
       W,H = runnmf(myVcols=myVcols, myVrows=myVrows, mystartrow=mystartrow, myendrow=myendrow, mystartcol=mystartcol, myendcol=myendcol, Hsendcountlist=Hsendcountlist, Wsendcountlist=Wsendcountlist, kfactor=k, checkinterval=int(args.interval), threshold=int(args.consecutive), maxiterations=int(args.maxiterations), seed=seed, debug=DEBUGVAL, comm=comm, parastrategy=args.parastrategy, klerrordiffmax=klerrordiffmax)
       # print result and write files only if rank == 0, or parastrategy
       # is serial or kfactor
+      poolTrack.log_outstanding_allocations()
+
       if rank == 0 or args.parastrategy in ('serial', 'kfactor'):
         if debug:
           print(f'{rank}: xxxxxxxxxxxxxxx Elapsed time for k={k} seed={seed} : {time.process_time() - start}\n');
@@ -1247,8 +1259,11 @@ try:
           elif args.outputfiletype == 'gct':
             H_gct = NP_GCT(data=H.get(), rowNames=list(map(str,range(k))), colNames=columnnames,rowDescrip=list(map(str,range(k))))
             H_gct.write_gct(f'{args.outputfileprefix}.H.k.{k}.seed.{seed}.gct')
+            H_gct = None
             W_gct = NP_GCT(data=W.get(), rowNames=rownames, colNames=list(map(str,range(k))),rowDescrip=rownames)
             W_gct.write_gct(f'{args.outputfileprefix}.W.k.{k}.seed.{seed}.gct')
+            W_gct = None
+            mempool.free_all_blocks()
           else:
             print(f'Sorry, not writing W and H, unless --outputfiletype=npy or h5 or gct.\n')
         #else:
@@ -1264,11 +1279,10 @@ try:
         # uses lots of host memory:
         #together_counts[i[:, None] == i[None, :]] += 1
         H = None
+        Ht = None
         W = None
+        Wt = None
         mempool.free_all_blocks()
-        if debug:
-          print(f'{rank}: before updating together_counts, mempool.used_bytes(): {mempool.used_bytes()}\n')
-          print(f'{rank}: before updating together_counts, mempool.total_bytes(): {mempool.total_bytes()}\n')
         # better way would be to have each task update a portion
         # of together_counts, then collect.  For now do it the brutal way.
         #together_counts[i[:, None] == i[None, :]] += 1
@@ -1298,6 +1312,9 @@ try:
           print(f'{rank}: after scatter_add zeroarray {zeroarray.shape}\n')
         #together_counts[i[:, None] == i[None, :]] += 1
         together_counts += zeroarray
+        zeroarray= None
+        mempool.free_all_blocks()
+
         #os.system('date')
         # https://numpy.org/doc/stable/reference/arrays.nditer.html#arrays-nditer
         # no  cp.nditer
@@ -1314,10 +1331,11 @@ try:
       W = None
       H = None
       WH = None
+      mempool.free_all_blocks()
       if debug:
         print(f'{rank}: end of seed-list for loop\n')
         print(f'{rank}: finished k={k}, seed={seed}\n')
-      mempool.free_all_blocks()
+      
     os.chdir(JOBDIR)
     myVrows = None
     myVcols = None
@@ -1343,6 +1361,7 @@ try:
             for j_index in range(M):
               sys.stdout.write('{:>2.0f}'.format(h_together[i_index, j_index]/10))
           sys.stdout.write('\n')
+          h_together = None
         else:
           print(f'{rank}: consensus matrix larger than 80x80, not printing.\n')
       if debug:
@@ -1374,7 +1393,8 @@ try:
         if (rank == 0 or args.parastrategy in ('serial', 'kfactor')) and (args.outputfiletype == 'gct'):
           consensus_gct = NP_GCT(data=tchost.get(), rowNames=columnnames, colNames=columnnames)
           consensus_gct.write_gct('{}.consensus.k.{}.gct'.format(args.outputfileprefix,k))
-
+          consensus_gct = None
+          mempool.free_all_blocks()
         elif (rank == 0 or args.parastrategy in ('serial', 'kfactor')) and (args.outputfiletype == 'npy'):
           write_npy(tchost, f'{args.outputfileprefix}.consensus.k.{k}.npy', rowNames=columnnames, colNames=columnnames, rowDescrip=columnnames, datashape = [M, M])
         elif args.outputfiletype == 'h5':
@@ -1400,19 +1420,14 @@ try:
         # repeat 2 and 3 until only one cluster remains
         print(f'{rank}: before linkage\n')
         cophstart = time.process_time()
-        # maybe try replacing with fastcluster:
-        # https://pypi.org/project/fastcluster/
-        # or:
-        # https://docs.rapids.ai/api/cuml/stable/api.html#agglomerative-clustering
-        #linkage_mat = scipy.cluster.hierarchy.linkage(tchost)
-        #linkage_mat = cupyx.scipy.cluster.hierarchy.linkage(together_counts)
-        # linkage_mat = fastcluster.linkage(tchost)
-        RangePush("Agglomerative")
-        Agg = AgglomerativeClustering(n_clusters = k)
-        labels = Agg.fit_predict(tchost)
 
-        agglabels = cp.asnumpy(labels)
-
+        RangePush("KMeans")
+        kmeans_run = KMeans(n_clusters = k)
+        kmeans_run.fit(tchost)
+        labels = kmeans_run.labels_
+        RangePop()
+        print("KMeans Labels type is ")
+        print(type(labels))        
         ##### JTL 10252022-B
 
         namedf = pd.DataFrame(labels.get(), index = columnnames)
@@ -1433,7 +1448,8 @@ try:
         if rank == 0 and args.outputfiletype == 'gct':
           sc = NP_GCT(data=sorted_i_counts, rowNames=sortedNames, colNames=sortedNames )
           sc.write_gct('{}.consensus.k.{}.sorted.gct'.format(args.outputfileprefix,k))
-
+          sc = None
+          mempool.free_all_blocks()
         elif rank == 0 and args.outputfiletype == 'npy':
           print(f'{rank}: before sc.write_npy\n')
           write_npy(sorted_i_counts.get(), f'{args.outputfileprefix}.consensus.k.{k}.sorted.npy', rowNames=sortedNames, colNames=sortedNames, rowDescrip=sortedNames, datashape = [M, M])
@@ -1444,18 +1460,6 @@ try:
 
 
         #### END  JTL 10252022-B
-
-        ################ JTL 10252022-A comment out below since the sort is not keeping track of row names, move to a dataframe instead
-        #RangePush("Append column")
-        #tchost = cp.append(tchost, labels.reshape((len(labels),1)), 1)
-        #RangePop()
-        #RangePush("Sort")
-        #tchost = tchost[tchost[:, -1].argsort()][:, :-1]
-        #RangePop()
-        #assert(tchost.shape[0] == tchost.shape[1])
-        #RangePop()
-        ################ JTL 10252022-A - end commented out
-
 
         linkageend = time.process_time()
         print(f'{rank}: linkage time: {linkageend - cophstart}\n')
@@ -1501,38 +1505,6 @@ try:
         #sortedNames = namedf.sort_values(0).index
 
         postprocessstart = time.process_time()
-        ##### JTL 10252022-D remove the sorting that was not good.  Writing the sorted matrices now happens earlier (above)
-
-        #if debug:
-        # sort the samples in the consensus matrix for the plot
-        # put this back after using npy:
-        #print(f'{rank}: before DataFrame\n')
-        #countsdf=pd.DataFrame(tchost.get(), columns=columnnames, index=columnnames)
-        #print(f'{rank}: before KMeans fit\n')
-        #kmeans = cluster.KMeans(n_clusters=2).fit(countsdf)
-        #labels = kmeans.labels_
-
-        #namedf = pd.DataFrame(labels, index = columnnames)
-        #sortedNames = namedf.sort_values(0).index
-        #countsdf = countsdf[sortedNames]
-        #countsdf = countsdf.reindex(sortedNames)
-
-        #print(f'{rank}: before to_numpy\n')
-        #sorted_i_counts = countsdf.to_numpy()
-
-        #if rank == 0 and args.outputfiletype == 'gct':
-        #  print(f'{rank}: before sc = NP_GCT\n')
-        #  sc = NP_GCT(data=sorted_i_counts, rowNames=sortedNames, colNames=sortedNames )
-        #  print(f'{rank}: before sc.write_gct\n')
-        #  sc.write_gct('{}.consensus.k.{}.sorted.gct'.format(args.outputfileprefix,k))
-        #
-        #elif rank == 0 and args.outputfiletype == 'npy':
-        #  print(f'{rank}: before sc.write_npy\n')
-        #  write_npy(sorted_i_counts.get(), f'{args.outputfileprefix}.consensus.k.{k}.sorted.npy', rowNames=sortedNames, colNames=sortedNames, rowDescrip=sortedNames, datashape = [M, M])
-        #elif rank == 0 and args.outputfiletype == 'h5':
-        #  print(f'{rank}: before write_h5 {args.outputfileprefix}.consensus.k.{k}\n')
-        #  print(f'sortedNames {sortedNames}\n')
-        #  write_h5(sorted_i_counts, f'{args.outputfileprefix}.consensus.k.{k}.sorted', rowNames=sortedNames, colNames=sortedNames, rowDescrip=sortedNames, datashape = [M, M], comm_world=MPI.COMM_WORLD)
 
         if rank == 0 or args.parastrategy in ('serial', 'kfactor'):
           with open('{}.cophenetic.{}.txt'.format(args.outputfileprefix,k), 'w') as file:
@@ -1555,7 +1527,14 @@ try:
     RangePop() # K=
     TEDS_END_TIME = time.time()
     print(f'2. NEW VERSION ELAPSED time: {TEDS_END_TIME - TEDS_START_TIME}\n')
+    print(" END OF K="+str(k) )
+    print("===== scope variables ====")
+    print(dir())
+    print("===== LOcAL variables ====")
+    print(locals())
 
+    print("= ===== GLOBALS ======")
+    print(globals())
     # k_vs_correlation(20, maxk)
 except BaseException as e:
   traceback.print_tb(sys.exc_info()[2])
