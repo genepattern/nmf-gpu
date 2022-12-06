@@ -302,7 +302,7 @@ def plot_matrix(df, title, filename, rowLabels, colLabels):
         print("Skipping plot, too many cols for a usable plot")
         return
 
-    
+
     print("Incoming data is " + str(type(df)))
     if isinstance(df, pd.DataFrame):
         plot_counts = df.to_numpy()
@@ -1211,27 +1211,18 @@ try:
       mempool.free_all_blocks()
     if debug:
       print(f'{rank}: mystartrow: {mystartrow}, myendrow: {myendrow}, mystartcol: {mystartcol}, myendcol: {myendcol}, myrowcount: {myrowcount}, mycolcount: {mycolcount}, Hsendcountlist: {Hsendcountlist}, Wsendcountlist: {Wsendcountlist}\n')
-    # allocate the consensus matrix on device
-    print("Allocating a big square matrix of size: "+str(M)+" x " + str(M))
-    print ("COMM rank is " + str(comm.Get_rank()) + " of " + str(comm.Get_size()))
 
+    # allocate the consensus matrix on device
     together_counts = cp.zeros((M,M),dtype=TOGETHERTYPE)
 
-
     # iterate over seeds
-    print("seed list type is " + str(type(seed_list)))
     for seed in seed_list:
       start = time.process_time()
       os.chdir(JOBDIR)
       if args.keepintermediatefiles == True:
         os.makedirs(f'k.{k}/seed.{seed}', exist_ok=True)
         os.chdir(f'k.{k}/seed.{seed}')
-      #if debug:
-      print("Line 1221 c " + str(seed)+ " A=" + str(poolTrack.get_allocated_bytes()) + "   COMM rank is " + str(comm.Get_rank()) + " of " + str(comm.Get_size()))
-      print("Line 1221 c " + str(seed)+ " Allocations = " + str(poolTrack.get_outstanding_allocations_str()))
-      poolTrack.log_outstanding_allocations()
 
- 
       print(f'{rank}: doing k={k}, seed={seed}\n')
       W,H = runnmf(myVcols=myVcols, myVrows=myVrows, mystartrow=mystartrow, myendrow=myendrow, mystartcol=mystartcol, myendcol=myendcol, Hsendcountlist=Hsendcountlist, Wsendcountlist=Wsendcountlist, kfactor=k, checkinterval=int(args.interval), threshold=int(args.consecutive), maxiterations=int(args.maxiterations), seed=seed, debug=DEBUGVAL, comm=comm, parastrategy=args.parastrategy, klerrordiffmax=klerrordiffmax)
       # print result and write files only if rank == 0, or parastrategy
@@ -1355,7 +1346,7 @@ try:
       if debug:
         print(f'{rank}: end of seed-list for loop\n')
         print(f'{rank}: finished k={k}, seed={seed}\n')
-      
+
     os.chdir(JOBDIR)
     myVrows = None
     myVcols = None
@@ -1371,23 +1362,8 @@ try:
       if rank == 0 or args.parastrategy in ('serial', 'kfactor'):
         # for MPI scatter/gather
         numpy.set_printoptions(threshold=M*M)
-        if debug and M <= 80:
-          print('consensus matrix shape ({})'.format(together_counts.shape))
-          #print(f'together_counts: ({together_counts})\n')
-          h_together = together_counts.get()
-          sys.stdout.write('consensus matrix:')
-          for i_index in range(M):
-            sys.stdout.write('\n')
-            for j_index in range(M):
-              sys.stdout.write('{:>2.0f}'.format(h_together[i_index, j_index]/10))
-          sys.stdout.write('\n')
-          h_together = None
-        else:
-          print(f'{rank}: consensus matrix larger than 80x80, not printing.\n')
-      if debug:
-        print(f'{rank}: copying together_counts from GPU to host tchost\n')
-      i_counts = together_counts
-      tchost = together_counts
+
+      #tchost = together_counts
       if debug:
         print(f'{rank}: after copying together_counts from GPU to host tchost\n')
       if args.inputfiletype in ('gct','h5') or attributes_dict != None:
@@ -1406,21 +1382,21 @@ try:
           print(f'should never get here!\n')
 
         # grab a copy that we will sort after the AgglomerativeClustering is run
-        countsdf2 = pd.DataFrame(tchost.get(), columns = columnnames, index=columnnames)
+        countsdf2 = pd.DataFrame(together_counts.get(), columns = columnnames, index=columnnames)
 
         # print out the unsorted consensus matrix.  Not sure if this is worth doing since we will
         # priint the sorted one later after clustering
         if (rank == 0 or args.parastrategy in ('serial', 'kfactor')) and (args.outputfiletype == 'gct'):
-          consensus_gct = NP_GCT(data=tchost.get(), rowNames=columnnames, colNames=columnnames)
+          consensus_gct = NP_GCT(data=together_counts.get(), rowNames=columnnames, colNames=columnnames)
           consensus_gct.write_gct('{}.consensus.k.{}.gct'.format(args.outputfileprefix,k))
           consensus_gct = None
           mempool.free_all_blocks()
         elif (rank == 0 or args.parastrategy in ('serial', 'kfactor')) and (args.outputfiletype == 'npy'):
-          write_npy(tchost, f'{args.outputfileprefix}.consensus.k.{k}.npy', rowNames=columnnames, colNames=columnnames, rowDescrip=columnnames, datashape = [M, M])
+          write_npy(together_counts, f'{args.outputfileprefix}.consensus.k.{k}.npy', rowNames=columnnames, colNames=columnnames, rowDescrip=columnnames, datashape = [M, M])
         elif args.outputfiletype == 'h5':
           if debug:
             print(f'{rank}: before write_h5(tchost...\n')
-          write_h5(tchost, outputfileprefix=f'{args.outputfileprefix}.consensus.k.{k}', rowNames=columnnames, colNames=columnnames, rowDescrip=columnnames, datashape = [M, M], comm_world=MPI.COMM_WORLD)
+          write_h5(together_counts, outputfileprefix=f'{args.outputfileprefix}.consensus.k.{k}', rowNames=columnnames, colNames=columnnames, rowDescrip=columnnames, datashape = [M, M], comm_world=MPI.COMM_WORLD)
           if debug:
             print(f'{rank}: after write_h5(tchost...\n')
         if rank == 0 or args.parastrategy in ('serial', 'kfactor'):
@@ -1443,31 +1419,29 @@ try:
 
         RangePush("KMeans")
         kmeans_run = KMeans(n_clusters = k)
-        kmeans_run.fit(tchost)
+        kmeans_run.fit(together_counts)
         labels = kmeans_run.labels_
         kmeans_run = None
         RangePop()
         print("KMeans Labels type is ")
-        print(type(labels))        
+        print(type(labels))
         ##### JTL 10252022-B
 
         namedf = pd.DataFrame(labels.get(), index = columnnames)
         # and then sort columns by the clusters, and pull the names as a list
         sortedNames = namedf.sort_values(0).index
-        countsdf3 = countsdf2[sortedNames]
+        countsdf2 = countsdf2[sortedNames]
 
         # create a tuple since gct is indexed on name and descrip, and then reorder
         #sortedNamesAndDescrip = [(i,i) for i in sortedNames]
         # now sort the rows by the cluster membership labels
-        countsdf4 = countsdf3.reindex(sortedNames, axis=0)
-        sorted_i_counts = countsdf4.to_numpy()
+        countsdf2 = countsdf2.reindex(sortedNames, axis=0)
+        sorted_i_counts = countsdf2.to_numpy()
 
         # clear out the matrices we used to sort the counts
         del countsdf2
-        del countsdf3
-        del countsdf4
         del namedf
-
+        mempool.free_all_blocks()
 
         if rank == 0 or args.parastrategy in ('serial', 'kfactor'):
             plot_matrix(sorted_i_counts, "Consensus Matrix, k="+str(k), '{}.consensus.k.{}.pdf'.format(args.outputfileprefix,k), sortedNames, sortedNames)
@@ -1492,17 +1466,7 @@ try:
         linkageend = time.process_time()
         print(f'{rank}: linkage time: {linkageend - cophstart}\n')
         print(f'{rank}: before pdist\n')
-        # cdm = scipy.spatial.distance.pdist(tchost)
 
-        ## pairwise distance using Rapids AI
-        #cdm = pairwise_distances(tchost)
-
-        #cdm = cupyx.scipy.spatial.distance.pdist(together_counts)
-        #tchostfloat = tchost.astype(NUMPYTYPE,)
-        #cdm = fastdist.matrix_pairwise_distance(tchostfloat, fastdist.euclidean, "euclidean")
-        #cdm = cdm.transpose()
-        #print(f'{rank}: cdm.shape: {cdm.shape}\n')
-        # cdmhost = cdm.get()
         pdistend = time.process_time()
         print(f'{rank}: pdist time: {pdistend - linkageend}\n')
         # coming soon: https://github.com/cupy/cupy/issues/5946
@@ -1528,10 +1492,6 @@ try:
         file.close()
         print(f'{rank}: cophenetic correlation distance calculation: {time.process_time() - cophstart}\n');
         # do other postprocessing
-
-        #namedf = pd.DataFrame(labels.get(), index = columnnames)
-        #sortedNames = namedf.sort_values(0).index
-
         postprocessstart = time.process_time()
 
         if rank == 0 or args.parastrategy in ('serial', 'kfactor'):
@@ -1546,16 +1506,36 @@ try:
         thistime = MPI.Wtime()
         print(f'rank {rank}: finished consensus matrix: ({thistime - lasttime})\n')
         lasttime = thistime
-      i_counts = None
+
       together_counts = None
       mempool.free_all_blocks()
     else:
       print(f'{rank}: not generating consensus matrix...\n')
     RangePop() # Consensus
     RangePop() # K=
+
+    mempool.free_all_blocks()
+    if together_counts is not None:
+        print(" TC should be null is size " + str(together_counts.shape()[0]) + " by " str(together_counts.shape()[0]))
+    else :
+        print (" Together_counts is none")
+    if myVcols is not None:
+        print(" myVcols should be null is size " + str(myVcols.shape()[0]) + " by " str(myVcols.shape()[0]))
+    else :
+        print (" myVcols is none")
+    if myVrows is not None:
+        print(" myVrows should be null is size " + str(myVrows.shape()[0]) + " by " str(myVrows.shape()[0]))
+    else :
+        print (" myVrows is none")
+
+
     TEDS_END_TIME = time.time()
     print(f'2. NEW VERSION ELAPSED time: {TEDS_END_TIME - TEDS_START_TIME}\n')
     print(" END OF K="+str(k) )
+    #if debug:
+    print("Line 1536   Total GPU Alloc=" + str(poolTrack.get_allocated_bytes()) + "   COMM rank is " + str(comm.Get_rank()) + " of " + str(comm.Get_size()))
+    print("Line 1221   GPU Allocations = " + str(poolTrack.get_outstanding_allocations_str()))
+    poolTrack.log_outstanding_allocations()
     #print("===== scope variables ====")
     #print(dir())
     #print("= ===== GLOBALS ======")
