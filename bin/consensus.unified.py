@@ -374,8 +374,9 @@ def runnmf(myVcols=None,myVrows=None, mystartrow=None, myendrow=None,mystartcol=
   global H
   W = None
   H = None
-  #Use rapids memory manager
-  cp.cuda.set_allocator(rmm.rmm_cupy_allocator)
+  # Use rapids memory manager
+  #    - set at startup
+  # cp.cuda.set_allocator(rmm.rmm_cupy_allocator)
   # disable memory pool:
   #cp.cuda.set_allocator(None)
   #cp.cuda.runtime.setDevice(rank)
@@ -419,11 +420,16 @@ if y != 0.0:;
   # Is there any danger of H and W generated from rand()
   # getting out of sync amongst the tasks?
   # this is over interval [0, 1), might need to add a smidge...
+
+  print(" XXX  c.1 ===================== ")
   H = cp.array(cp.random.rand(kfactor,M, dtype=RANDTYPE), dtype=OTHERTYPE) + EPSILON
   # is it better to create the transposed matrix from the start?
+  print(" XXX  c.2 ===================== ")
   Ht = H.transpose()
   W = cp.array(cp.random.rand(N,kfactor,dtype=RANDTYPE), dtype=OTHERTYPE) + EPSILON
   Wt = W.transpose()
+  print(" XXX  c.3 ===================== ")
+
   if debug:
     print(f'{rank}: initial H: ({H})\n')
     print(f'{rank}: initial Ht: ({Ht})\n')
@@ -461,7 +467,9 @@ if y != 0.0:;
       print(f'{rank}: H: {H}\n')
       print(f'{rank}: H[:,mystartcol:myendcol + 1]: {H[:,mystartcol:myendcol + 1]}\n')
     RangePush("WH = W * pH")
+    print(" XXX  c.4 ===================== ")
     WHm = cp.matmul(W, H[:,mystartcol:myendcol + 1])
+    print(" XXX  c.5 ===================== ")
     if debug:
       print(f'Whmm.dtype: ({WHm.dtype})\n')
       print(f'{rank}: after matmul, WHm.shape: {WHm.shape}\n')
@@ -474,6 +482,7 @@ if y != 0.0:;
     # https://stackoverflow.com/questions/42190783/what-does-three-dots-in-python-mean-when-indexing-what-looks-like-a-number
     #with cp.nditer(myVcols, flags=['multi_index'], op_flags=['readwrite']) as it:
     WHm = safe_divide(myVcols, WHm)
+    print(" XXX  c.5 =A==================== ")
     # TODO Do we need a nan_to_num here?
     mempool.free_all_blocks()
     RangePop()
@@ -486,7 +495,11 @@ if y != 0.0:;
     if debug:
       print(f'{rank}: Wt: ({Wt})\n')
     RangePush("Haux = W' * WH")
+    print(" XXX  c.5 ==B=================== ")
     WTAUX = cp.matmul(Wt, WHm)
+    # try to free memory
+    del Wt
+
     if debug:
       print(f'{rank}: Wt.shape {Wt.shape} WHm.shape {WHm.shape} WTAUX.shape {WTAUX.shape}\n')
       print(f'{rank}:  WTAUX.shape: {WTAUX.shape}\n')
@@ -496,9 +509,11 @@ if y != 0.0:;
     # sum each column down to a single value...
     RangePop()
     RangePush("H = H * Haux / accum_W")
+    print(" XXX  c.6 ===================== ")
     ACCW = cp.sum(W, axis=0)
     # https://towardsdatascience.com/5-methods-to-check-for-nan-values-in-in-python-3f21ddd17eed
     # WTAUXDIV = WTAUX ./ ACCWT
+    print(" XXX  c.7 ===================== ")
     if debug:
       print(f'{rank}:  WTAUX.shape: {WTAUX.shape}, ACCW.shape: {ACCW.shape}\n')
       print(f'{rank}: ACCW: ({ACCW})\n')
@@ -510,6 +525,7 @@ if y != 0.0:;
     # Will that work?
     WTAUXDIV = safe_divide(WTAUX.transpose(), ACCW)
     WTAUXDIV = WTAUXDIV.transpose()
+    print(" XXX  c.8 ===================== ")
     if debug:
       print(f'{rank}: WTAUXDIV: ({WTAUXDIV})\n')
     # H = H .* WTAUXDIV
@@ -578,6 +594,7 @@ if y != 0.0:;
     # * W(BLN,Kp) = W(BLN,Kp) .* Waux(BLN,Kp) ./ accum_h
     # generate ACCUMH
     RangePush("WH = W * H")
+    print(" XXX  c.9 ===================== ")
     ACCH = cp.sum(H, axis=1, dtype=OTHERTYPE)
     if debug:
       print(f'{rank}: H: ({H})\n')
@@ -964,8 +981,8 @@ for deviceid in range(cp.cuda.runtime.getDeviceCount()):
 
 pool = rmm.mr.PoolMemoryResource(
     rmm.mr.CudaMemoryResource(),
-    initial_pool_size=2**35 - 2000000000,
-    maximum_pool_size=2**35 - 2000000000
+    initial_pool_size=2**35 - 1900000000,
+    maximum_pool_size=2**35 - 1900000000
 )
 
 
@@ -1033,6 +1050,7 @@ if args.inputfiletype in ('gct',):
   if debug:
     print(f'{rank}: done reading input file with NP_GCT({args.inputfile})\n')
   V = gct_data.data
+  gct_data.data = None # drop the handle to allow memory to be freed if needed
 elif args.inputfiletype in ('h5',):
   print(f'HDF5 input format not supported, yet!\n')
   sys.exit(1)
@@ -1165,7 +1183,6 @@ try:
     myVrows = cp.array(V[mystartrow:myendrow + 1,:])
     if debug:
       print(f'{rank}: start of loop for k={k}\n')
-
     if args.parastrategy == 'inputmatrix':
       # set up Hsendcountlist and Wsendcountlist for use in AllGatherv
       Hsendcountlist = []
@@ -1268,6 +1285,8 @@ try:
             print(f'Sorry, not writing W and H, unless --outputfiletype=npy or h5 or gct.\n')
         #else:
         #  print(f'--keepintermediatefiles not True, not writing out W and H\n')
+        print ("XXX - D --------------")
+
         RangePop()
         RangePush("Togetherness")
         togetherstart = time.process_time()
@@ -1312,7 +1331,8 @@ try:
           print(f'{rank}: after scatter_add zeroarray {zeroarray.shape}\n')
         #together_counts[i[:, None] == i[None, :]] += 1
         together_counts += zeroarray
-        zeroarray= None
+        del zeroarray
+        # zeroarray= None
         mempool.free_all_blocks()
 
         #os.system('date')
@@ -1425,6 +1445,7 @@ try:
         kmeans_run = KMeans(n_clusters = k)
         kmeans_run.fit(tchost)
         labels = kmeans_run.labels_
+        kmeans_run = None
         RangePop()
         print("KMeans Labels type is ")
         print(type(labels))        
@@ -1440,6 +1461,13 @@ try:
         # now sort the rows by the cluster membership labels
         countsdf4 = countsdf3.reindex(sortedNames, axis=0)
         sorted_i_counts = countsdf4.to_numpy()
+
+        # clear out the matrices we used to sort the counts
+        del countsdf2
+        del countsdf3
+        del countsdf4
+        del namedf
+
 
         if rank == 0 or args.parastrategy in ('serial', 'kfactor'):
             plot_matrix(sorted_i_counts, "Consensus Matrix, k="+str(k), '{}.consensus.k.{}.pdf'.format(args.outputfileprefix,k), sortedNames, sortedNames)
@@ -1458,7 +1486,7 @@ try:
           print(f'sortedNames {sortedNames}\n')
           write_h5(sorted_i_counts, f'{args.outputfileprefix}.consensus.k.{k}.sorted', rowNames=sortedNames, colNames=sortedNames, rowDescrip=sortedNames, datashape = [M, M], comm_world=MPI.COMM_WORLD)
 
-
+        del sorted_i_counts
         #### END  JTL 10252022-B
 
         linkageend = time.process_time()
@@ -1467,13 +1495,13 @@ try:
         # cdm = scipy.spatial.distance.pdist(tchost)
 
         ## pairwise distance using Rapids AI
-        cdm = pairwise_distances(tchost)
+        #cdm = pairwise_distances(tchost)
 
         #cdm = cupyx.scipy.spatial.distance.pdist(together_counts)
         #tchostfloat = tchost.astype(NUMPYTYPE,)
         #cdm = fastdist.matrix_pairwise_distance(tchostfloat, fastdist.euclidean, "euclidean")
         #cdm = cdm.transpose()
-        print(f'{rank}: cdm.shape: {cdm.shape}\n')
+        #print(f'{rank}: cdm.shape: {cdm.shape}\n')
         # cdmhost = cdm.get()
         pdistend = time.process_time()
         print(f'{rank}: pdist time: {pdistend - linkageend}\n')
@@ -1528,13 +1556,10 @@ try:
     TEDS_END_TIME = time.time()
     print(f'2. NEW VERSION ELAPSED time: {TEDS_END_TIME - TEDS_START_TIME}\n')
     print(" END OF K="+str(k) )
-    print("===== scope variables ====")
-    print(dir())
-    print("===== LOcAL variables ====")
-    print(locals())
-
-    print("= ===== GLOBALS ======")
-    print(globals())
+    #print("===== scope variables ====")
+    #print(dir())
+    #print("= ===== GLOBALS ======")
+    #print(globals())
     # k_vs_correlation(20, maxk)
 except BaseException as e:
   traceback.print_tb(sys.exc_info()[2])
