@@ -421,20 +421,15 @@ if y != 0.0:;
   # getting out of sync amongst the tasks?
   # this is over interval [0, 1), might need to add a smidge...
 
-  print(" XXX  c.1 ===================== ")
   H = cp.array(cp.random.rand(kfactor,M, dtype=RANDTYPE), dtype=OTHERTYPE) + EPSILON
   # is it better to create the transposed matrix from the start?
-  print(" XXX  c.2 ===================== ")
-  Ht = H.transpose()
+  #Ht = H.transpose()
   W = cp.array(cp.random.rand(N,kfactor,dtype=RANDTYPE), dtype=OTHERTYPE) + EPSILON
-  Wt = W.transpose()
-  print(" XXX  c.3 ===================== ")
+  #Wt = W.transpose()
 
   if debug:
     print(f'{rank}: initial H: ({H})\n')
-    print(f'{rank}: initial Ht: ({Ht})\n')
     print(f'{rank}: initial W: ({W})\n')
-    print(f'{rank}: initial Wt: ({Wt})\n')
     print(f'{rank}: V: ({V})\n')
     print(f'{rank}: WH: ({cp.matmul(W,H)})\n')
     # write out pickled W and H
@@ -467,7 +462,6 @@ if y != 0.0:;
       print(f'{rank}: H: {H}\n')
       print(f'{rank}: H[:,mystartcol:myendcol + 1]: {H[:,mystartcol:myendcol + 1]}\n')
     RangePush("WH = W * pH")
-    print(" XXX  c.4 ===================== ")
     WHm = cp.matmul(W, H[:,mystartcol:myendcol + 1])
     print(" XXX  c.5 ===================== ")
     if debug:
@@ -481,7 +475,16 @@ if y != 0.0:;
     # https://numpy.org/doc/stable/reference/arrays.nditer.html
     # https://stackoverflow.com/questions/42190783/what-does-three-dots-in-python-mean-when-indexing-what-looks-like-a-number
     #with cp.nditer(myVcols, flags=['multi_index'], op_flags=['readwrite']) as it:
+    
+    print("Line 480 pre divide  Total GPU Alloc=" + str(poolTrack.get_allocated_bytes()) ) 
+    if (k == 4):
+        print("XXX 480  GPU Allocations = " + str(poolTrack.get_outstanding_allocations_str()))
+        print(f'      WHm.shape: {WHm.shape}\n')
+        print(f'      H.shape: {H.shape}\n')
+        print(f'      myVCols: {myVcols.shape}\n')
+ 
     WHm = safe_divide(myVcols, WHm)
+    print("Line 480 post divide   Total GPU Alloc=" + str(poolTrack.get_allocated_bytes()))
     print(" XXX  c.5 =A==================== ")
     # TODO Do we need a nan_to_num here?
     mempool.free_all_blocks()
@@ -492,19 +495,14 @@ if y != 0.0:;
       print(f'{rank}: WHm.dtype ({WHm.dtype})\n')
       print(f'{rank}: Wt.dtype ({Wt.dtype})\n')
     # WTAux = Wt * AUX
-    if debug:
-      print(f'{rank}: Wt: ({Wt})\n')
     RangePush("Haux = W' * WH")
     print(" XXX  c.5 ==B=================== ")
-    WTAUX = cp.matmul(Wt, WHm)
-    # try to free memory
-    del Wt
+    WTAUX = cp.matmul(W.transpose(), WHm)
 
     if debug:
-      print(f'{rank}: Wt.shape {Wt.shape} WHm.shape {WHm.shape} WTAUX.shape {WTAUX.shape}\n')
+      print(f'{rank}: WHm.shape {WHm.shape} WTAUX.shape {WTAUX.shape}\n')
       print(f'{rank}:  WTAUX.shape: {WTAUX.shape}\n')
       print(f'{rank}: WTAUX: ({WTAUX})\n')
-      print(f'{rank}: update H, matmul(Wt, WH), WTAUX: ({WTAUX})\n')
     # how do we get reduced an accumulated ACCWT below?
     # sum each column down to a single value...
     RangePop()
@@ -664,7 +662,7 @@ if y != 0.0:;
       thistime = MPI.Wtime()
       print(f'rank {rank}: kfactor {kfactor}: seed {seed} : iteration {iterationcount} : sync W time: ({thistime - lasttime})\n')
       lasttime = thistime
-    Wt = W.transpose()
+    # Wt = W.transpose()
     if debug:
       thistime = MPI.Wtime()
       print(f'rank {rank}: kfactor {kfactor}: seed {seed} : iteration {iterationcount} : W transpose time: ({thistime - lasttime})\n')
@@ -990,7 +988,7 @@ pool = rmm.mr.PoolMemoryResource(
 # rmm.mr.set_current_device_resource(pool)
 
 # for debugging
-poolTrack = rmm.mr.TrackingResourceAdaptor(pool, True)
+poolTrack = rmm.mr.TrackingResourceAdaptor(pool, False)
 rmm.enable_logging(log_file_name="rmm_tracking_log")
 rmm.mr.enable_logging(log_file_name="rmm_mr_tracking_log")
 rmm.mr.set_current_device_resource(poolTrack)
@@ -1516,15 +1514,15 @@ try:
 
     mempool.free_all_blocks()
     if together_counts is not None:
-        print(" TC should be null is size " + str(together_counts.shape()[0]) + " by " str(together_counts.shape()[0]))
+        print(" TC should be null is size " + str(together_counts.shape()[0]) + " by "+ str(together_counts.shape()[0]))
     else :
         print (" Together_counts is none")
     if myVcols is not None:
-        print(" myVcols should be null is size " + str(myVcols.shape()[0]) + " by " str(myVcols.shape()[0]))
+        print(" myVcols should be null is size " + str(myVcols.shape()[0]) + " by " + str(myVcols.shape()[0]))
     else :
         print (" myVcols is none")
     if myVrows is not None:
-        print(" myVrows should be null is size " + str(myVrows.shape()[0]) + " by " str(myVrows.shape()[0]))
+        print(" myVrows should be null is size " + str(myVrows.shape()[0]) + " by " + str(myVrows.shape()[0]))
     else :
         print (" myVrows is none")
 
