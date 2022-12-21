@@ -380,8 +380,8 @@ def runnmf(myVcols=None,myVrows=None, mystartrow=None, myendrow=None,mystartcol=
   # disable memory pool:
   #cp.cuda.set_allocator(None)
   #cp.cuda.runtime.setDevice(rank)
-  mempool = cp.get_default_memory_pool()
-  mempool.free_all_blocks()
+  #mempool = cp.get_default_memory_pool()
+  #mempool.free_all_blocks()
 
 
   if debug:
@@ -463,7 +463,6 @@ if y != 0.0:;
       print(f'{rank}: H[:,mystartcol:myendcol + 1]: {H[:,mystartcol:myendcol + 1]}\n')
     RangePush("WH = W * pH")
     WHm = cp.matmul(W, H[:,mystartcol:myendcol + 1])
-    print(" XXX  c.5 ===================== ")
     if debug:
       print(f'Whmm.dtype: ({WHm.dtype})\n')
       print(f'{rank}: after matmul, WHm.shape: {WHm.shape}\n')
@@ -476,18 +475,17 @@ if y != 0.0:;
     # https://stackoverflow.com/questions/42190783/what-does-three-dots-in-python-mean-when-indexing-what-looks-like-a-number
     #with cp.nditer(myVcols, flags=['multi_index'], op_flags=['readwrite']) as it:
     
-    print("Line 480 pre divide  Total GPU Alloc=" + str(poolTrack.get_allocated_bytes()) ) 
+    #print("Line 480 pre divide  Total GPU Alloc=" + str(poolTrack.get_allocated_bytes()) ) 
     if (k == 4):
-        print("XXX 480  GPU Allocations = " + str(poolTrack.get_outstanding_allocations_str()))
+        #print("XXX 480  GPU Allocations = " + str(poolTrack.get_outstanding_allocations_str()))
         print(f'      WHm.shape: {WHm.shape}\n')
         print(f'      H.shape: {H.shape}\n')
         print(f'      myVCols: {myVcols.shape}\n')
  
     WHm = safe_divide(myVcols, WHm)
-    print("Line 480 post divide   Total GPU Alloc=" + str(poolTrack.get_allocated_bytes()))
-    print(" XXX  c.5 =A==================== ")
+    #print("Line 480 post divide   Total GPU Alloc=" + str(poolTrack.get_allocated_bytes()))
     # TODO Do we need a nan_to_num here?
-    mempool.free_all_blocks()
+    #mempool.free_all_blocks()
     RangePop()
     if debug:
       print(f'{rank}: after divide, WHm.shape: {WHm.shape}\n')
@@ -496,7 +494,6 @@ if y != 0.0:;
       print(f'{rank}: Wt.dtype ({Wt.dtype})\n')
     # WTAux = Wt * AUX
     RangePush("Haux = W' * WH")
-    print(" XXX  c.5 ==B=================== ")
     WTAUX = cp.matmul(W.transpose(), WHm)
 
     if debug:
@@ -507,11 +504,9 @@ if y != 0.0:;
     # sum each column down to a single value...
     RangePop()
     RangePush("H = H * Haux / accum_W")
-    print(" XXX  c.6 ===================== ")
     ACCW = cp.sum(W, axis=0)
     # https://towardsdatascience.com/5-methods-to-check-for-nan-values-in-in-python-3f21ddd17eed
     # WTAUXDIV = WTAUX ./ ACCWT
-    print(" XXX  c.7 ===================== ")
     if debug:
       print(f'{rank}:  WTAUX.shape: {WTAUX.shape}, ACCW.shape: {ACCW.shape}\n')
       print(f'{rank}: ACCW: ({ACCW})\n')
@@ -523,7 +518,6 @@ if y != 0.0:;
     # Will that work?
     WTAUXDIV = safe_divide(WTAUX.transpose(), ACCW)
     WTAUXDIV = WTAUXDIV.transpose()
-    print(" XXX  c.8 ===================== ")
     if debug:
       print(f'{rank}: WTAUXDIV: ({WTAUXDIV})\n')
     # H = H .* WTAUXDIV
@@ -533,7 +527,7 @@ if y != 0.0:;
     WTAUX = None
     WTAUXDIV = None
     ACCW = None
-    mempool.free_all_blocks()
+    #mempool.free_all_blocks()
     RangePop()
     # sync H to all devices
     if debug:
@@ -567,13 +561,14 @@ if y != 0.0:;
       Hnewfull = Hrecv.reshape(Hshape, order='F')
       Hnewflat = None
       Hrecv = None
-      mempool.free_all_blocks()
+      #mempool.free_all_blocks()
       if debug:
         print(f'{rank}: after Allgatherv, reshape, H.shape {H.shape}\n')
         print(f'{rank}: after Allgatherv, reshape, H {H}\n')
       H = Hnewfull
       Hnewfull = None
-      mempool.free_all_blocks()
+      #mempool.free_all_blocks()
+
     else:
       cp.cuda.Stream.null.synchronize()
       H = Hnew
@@ -592,7 +587,6 @@ if y != 0.0:;
     # * W(BLN,Kp) = W(BLN,Kp) .* Waux(BLN,Kp) ./ accum_h
     # generate ACCUMH
     RangePush("WH = W * H")
-    print(" XXX  c.9 ===================== ")
     ACCH = cp.sum(H, axis=1, dtype=OTHERTYPE)
     if debug:
       print(f'{rank}: H: ({H})\n')
@@ -621,7 +615,8 @@ if y != 0.0:;
     #Wnewnan = None
     WWAUX = None
     ACCH = None
-    mempool.free_all_blocks()
+    #mempool.free_all_blocks()
+
     RangePop()
     if debug:
       print(f'{rank}: Wnew: ({Wnew})\n')
@@ -650,12 +645,14 @@ if y != 0.0:;
       Wrecv = None
       W = Wnewfull
       Wnewfull = None
-      mempool.free_all_blocks()
+      #mempool.free_all_blocks()
+
     else:
       cp.cuda.Stream.null.synchronize()
       H = Hnew
       W = Wnew
     RangePop()
+
     if debug:
       print(f'{rank}: after Allgatherv, W.shape {W.shape}\n')
       print(f'{rank}: after Allgatherv, W {W}\n')
@@ -728,7 +725,7 @@ if y != 0.0:;
           #  print(f'{rank}: X_datakl / WH_datakl, div: ({div})\n')
           cp.log(div,out=div)
           res = None
-          mempool.free_all_blocks()
+          #mempool.free_all_blocks()
           res = cp.dot(X_datakl, div, out=res)
           if debug:
             print(f'{rank}: cp.log(div) ({cp.log(div)})\n')
@@ -771,7 +768,7 @@ if y != 0.0:;
             WH_datakl = None
             X_datakl = None
             div = None
-            mempool.free_all_blocks()
+            #mempool.free_all_blocks()
             if errordiff >= 0.0:
               RangePop()
               RangePop()
@@ -791,7 +788,7 @@ if y != 0.0:;
             WH_datakl = None
             X_datakl = None
             div = None
-            mempool.free_all_blocks()
+            #mempool.free_all_blocks()
           RangePop()
         #end else if parastrategy == 'inputmatrix':
         else:
@@ -847,7 +844,7 @@ if y != 0.0:;
             print(f'{rank}: oldserialerror: {oldserialerror}\n')
           if type(oldserialerror) == type(None):
             errordiff = None
-            mempool.free_all_blocks()
+            #mempool.free_all_blocks()
             oldserialerror = error
           else:
             errordiff = oldserialerror - error
@@ -869,7 +866,7 @@ if y != 0.0:;
               res = None
               indices = None
               sum_WH = None
-              mempool.free_all_blocks()
+              #mempool.free_all_blocks()
               RangePop()
               RangePop()
               RangePop()
@@ -886,7 +883,7 @@ if y != 0.0:;
             res = None
             indices = None
             sum_WH = None
-            mempool.free_all_blocks()
+            #mempool.free_all_blocks()
             #return(W,H)
           RangePop()
         #end else if parastrategy != 'inputmatrix':
@@ -894,7 +891,7 @@ if y != 0.0:;
         WH_datakl = None
         X_datakl = None
         div = None
-        mempool.free_all_blocks()
+        #mempool.free_all_blocks()
       # else not klerrordiffmax == None:
       else:
         if debug:
@@ -918,6 +915,7 @@ if y != 0.0:;
           if rank == 0:
             print(f'{rank}: checking classification...\n')
         newclassification = cp.argmax(H, axis=0)
+
         if debug:
           if rank == 0:
             print(f'{rank}: type(oldclassification): ({type(oldclassification)})\n')
@@ -950,6 +948,7 @@ if y != 0.0:;
           sameclassificationcount = 0
     RangePop()
     thistime = MPI.Wtime()
+
     if debug:
       print(f'rank {rank}: kfactor {kfactor}: seed {seed} : iteration {iterationcount} : divergence/classification check time: ({thistime - lasttime})\n')
     lasttime = thistime
@@ -958,6 +957,9 @@ if y != 0.0:;
   if debug:
     print(f'{rank}: iterationcount ({iterationcount})\n')
   RangePop()
+  print(f" {rank}:{cp.cuda.runtime.getDevice()} c.1r - done runnmf ===================== ")
+  return(W,H)
+
 
 # start of execution
 
@@ -969,36 +971,36 @@ numtasks = comm.size
 # on shared GPU nodes, assume the job sees only its device ids,
 # starting from 0, incrementing by one.
 #print(f'{rank}: cp.cuda.runtime.getDeviceCount() {cp.cuda.runtime.getDeviceCount()}\n')
-#print(f'{rank}: before setDevice, cp.cuda.runtime.getDevice() {cp.cuda.runtime.getDevice()}\n')
+print(f'{rank}:{cp.cuda.runtime.getDevice()}  before setDevice')
 for deviceid in range(cp.cuda.runtime.getDeviceCount()):
   if rank == deviceid:
     cp.cuda.runtime.setDevice(deviceid)
-#print(f'{rank}: after setDevice, cp.cuda.runtime.getDevice() {cp.cuda.runtime.getDevice()}\n')
+
+print(f'{rank}:{cp.cuda.runtime.getDevice()}  after setDevice')
+
 # https://docs.cupy.dev/en/stable/user_guide/memory.html
 #Set the pool size for Rapids Memory Manager
 
-pool = rmm.mr.PoolMemoryResource(
-    rmm.mr.CudaMemoryResource(),
-    initial_pool_size=2**35 - 1900000000,
-    maximum_pool_size=2**35 - 1900000000
-)
+#pool = rmm.mr.PoolMemoryResource(
+#    rmm.mr.CudaMemoryResource(),
+#    initial_pool_size=2**35 - 1900000000,
+#    maximum_pool_size=2**35 - 1900000000
+#)
 
 
 # if not debugging memory, uncomment the following line and comment the 3 TrackingResourceAdaptor lines below
 # rmm.mr.set_current_device_resource(pool)
 
 # for debugging
-poolTrack = rmm.mr.TrackingResourceAdaptor(pool, False)
-rmm.enable_logging(log_file_name="rmm_tracking_log")
-rmm.mr.enable_logging(log_file_name="rmm_mr_tracking_log")
-rmm.mr.set_current_device_resource(poolTrack)
+#poolTrack = rmm.mr.TrackingResourceAdaptor(pool, False)
+#rmm.enable_logging(log_file_name="rmm_tracking_log")
+#rmm.mr.enable_logging(log_file_name="rmm_mr_tracking_log")
+#rmm.mr.set_current_device_resource(poolTrack)
 
+#cp.cuda.set_allocator(rmm.rmm_cupy_allocator)
 
-
-cp.cuda.set_allocator(rmm.rmm_cupy_allocator)
-
-mempool = cp.get_default_memory_pool()
-pinned_mempool = cp.get_default_pinned_memory_pool()
+#mempool = cp.get_default_memory_pool()
+#pinned_mempool = cp.get_default_pinned_memory_pool()
 lasttime = MPI.Wtime()
 
 parser = argparse.ArgumentParser()
@@ -1076,7 +1078,7 @@ if args.klerrordiffmax:
   klerrordiffmax = NUMPYTYPE(args.klerrordiffmax)
 else:
   klerrordiffmax = None
-  mempool.free_all_blocks()
+  #mempool.free_all_blocks()
 
 M = V.shape[1]
 #print("Read " + args.inputfile + "  " + str(V.shape))
@@ -1168,9 +1170,14 @@ try:
     print(f'from beginning to start of for k loop: ({thistime - lasttime})\n')
     lasttime = thistime
 
+  print(f'{rank}:{cp.cuda.runtime.getDevice()}  starting  myrows  {mystartrow}-{myendrow}')
+  print(f'{rank}:{cp.cuda.runtime.getDevice()}  starting  and mycols  {mystartcol}-{myendcol}')
+  
   # iterate over kfactors
   kdirs = []
   for k in my_k_indices:
+    print(f'{rank}:{cp.cuda.runtime.getDevice()}  starting k={k}')
+
     RangePush("K = " + str(k))
     kdirs.append('k.{}'.format(k))
     os.chdir(JOBDIR)
@@ -1206,7 +1213,7 @@ try:
     else:
       Hsendcountlist = None
       Wsendcountlist = None
-      mempool.free_all_blocks()
+      #mempool.free_all_blocks()
     if debug:
       print(f'{rank}: mystartrow: {mystartrow}, myendrow: {myendrow}, mystartcol: {mystartcol}, myendcol: {myendcol}, myrowcount: {myrowcount}, mycolcount: {mycolcount}, Hsendcountlist: {Hsendcountlist}, Wsendcountlist: {Wsendcountlist}\n')
 
@@ -1221,11 +1228,13 @@ try:
         os.makedirs(f'k.{k}/seed.{seed}', exist_ok=True)
         os.chdir(f'k.{k}/seed.{seed}')
 
-      print(f'{rank}: doing k={k}, seed={seed}\n')
+      print(f'{rank}:{cp.cuda.runtime.getDevice()}  starting k={k}  seed={seed}')
+
       W,H = runnmf(myVcols=myVcols, myVrows=myVrows, mystartrow=mystartrow, myendrow=myendrow, mystartcol=mystartcol, myendcol=myendcol, Hsendcountlist=Hsendcountlist, Wsendcountlist=Wsendcountlist, kfactor=k, checkinterval=int(args.interval), threshold=int(args.consecutive), maxiterations=int(args.maxiterations), seed=seed, debug=DEBUGVAL, comm=comm, parastrategy=args.parastrategy, klerrordiffmax=klerrordiffmax)
       # print result and write files only if rank == 0, or parastrategy
       # is serial or kfactor
-      poolTrack.log_outstanding_allocations()
+      #poolTrack.log_outstanding_allocations()
+      print(f'{rank}:{cp.cuda.runtime.getDevice()}  finished k={k}  seed={seed}')
 
       if rank == 0 or args.parastrategy in ('serial', 'kfactor'):
         if debug:
@@ -1236,7 +1245,7 @@ try:
         RangePop()
         continue
       else:
-        #print(f'type(H) not type(None)...')
+        print(f'{rank}:{cp.cuda.runtime.getDevice()}  intermediate files {args.keepintermediatefiles}')  
         RangePush("Intermediate Files")
         if args.keepintermediatefiles == True:
           if args.inputfiletype in ('npy',) and inputattributespath.exists:
@@ -1269,12 +1278,9 @@ try:
             W_gct = NP_GCT(data=W.get(), rowNames=rownames, colNames=list(map(str,range(k))),rowDescrip=rownames)
             W_gct.write_gct(f'{args.outputfileprefix}.W.k.{k}.seed.{seed}.gct')
             W_gct = None
-            mempool.free_all_blocks()
+            #mempool.free_all_blocks()
           else:
             print(f'Sorry, not writing W and H, unless --outputfiletype=npy or h5 or gct.\n')
-        #else:
-        #  print(f'--keepintermediatefiles not True, not writing out W and H\n')
-        print ("XXX - D --------------")
 
         RangePop()
         RangePush("Togetherness")
@@ -1290,7 +1296,7 @@ try:
         Ht = None
         W = None
         Wt = None
-        mempool.free_all_blocks()
+        #mempool.free_all_blocks()
         # better way would be to have each task update a portion
         # of together_counts, then collect.  For now do it the brutal way.
         #together_counts[i[:, None] == i[None, :]] += 1
@@ -1322,7 +1328,7 @@ try:
         together_counts += zeroarray
         del zeroarray
         # zeroarray= None
-        mempool.free_all_blocks()
+        #mempool.free_all_blocks()
 
         #os.system('date')
         # https://numpy.org/doc/stable/reference/arrays.nditer.html#arrays-nditer
@@ -1340,7 +1346,7 @@ try:
       W = None
       H = None
       WH = None
-      mempool.free_all_blocks()
+      #mempool.free_all_blocks()
       if debug:
         print(f'{rank}: end of seed-list for loop\n')
         print(f'{rank}: finished k={k}, seed={seed}\n')
@@ -1348,7 +1354,9 @@ try:
     os.chdir(JOBDIR)
     myVrows = None
     myVcols = None
-    mempool.free_all_blocks()
+    #mempool.free_all_blocks()
+    print(f'{rank}:{cp.cuda.runtime.getDevice()}  Consensus ')
+
     RangePush("Consensus")
     if debug:
       thistime = MPI.Wtime()
@@ -1383,12 +1391,12 @@ try:
         countsdf2 = pd.DataFrame(together_counts.get(), columns = columnnames, index=columnnames)
 
         # print out the unsorted consensus matrix.  Not sure if this is worth doing since we will
-        # priint the sorted one later after clustering
+        # print the sorted one later after clustering
         if (rank == 0 or args.parastrategy in ('serial', 'kfactor')) and (args.outputfiletype == 'gct'):
           consensus_gct = NP_GCT(data=together_counts.get(), rowNames=columnnames, colNames=columnnames)
           consensus_gct.write_gct('{}.consensus.k.{}.gct'.format(args.outputfileprefix,k))
           consensus_gct = None
-          mempool.free_all_blocks()
+          #mempool.free_all_blocks()
         elif (rank == 0 or args.parastrategy in ('serial', 'kfactor')) and (args.outputfiletype == 'npy'):
           write_npy(together_counts, f'{args.outputfileprefix}.consensus.k.{k}.npy', rowNames=columnnames, colNames=columnnames, rowDescrip=columnnames, datashape = [M, M])
         elif args.outputfiletype == 'h5':
@@ -1421,9 +1429,6 @@ try:
         labels = kmeans_run.labels_
         kmeans_run = None
         RangePop()
-        print("KMeans Labels type is ")
-        print(type(labels))
-        ##### JTL 10252022-B
 
         namedf = pd.DataFrame(labels.get(), index = columnnames)
         # and then sort columns by the clusters, and pull the names as a list
@@ -1439,7 +1444,7 @@ try:
         # clear out the matrices we used to sort the counts
         del countsdf2
         del namedf
-        mempool.free_all_blocks()
+        #mempool.free_all_blocks()
 
         if rank == 0 or args.parastrategy in ('serial', 'kfactor'):
             plot_matrix(sorted_i_counts, "Consensus Matrix, k="+str(k), '{}.consensus.k.{}.pdf'.format(args.outputfileprefix,k), sortedNames, sortedNames)
@@ -1449,7 +1454,7 @@ try:
           sc = NP_GCT(data=sorted_i_counts, rowNames=sortedNames, colNames=sortedNames )
           sc.write_gct('{}.consensus.k.{}.sorted.gct'.format(args.outputfileprefix,k))
           sc = None
-          mempool.free_all_blocks()
+          #mempool.free_all_blocks()
         elif rank == 0 and args.outputfiletype == 'npy':
           print(f'{rank}: before sc.write_npy\n')
           write_npy(sorted_i_counts.get(), f'{args.outputfileprefix}.consensus.k.{k}.sorted.npy', rowNames=sortedNames, colNames=sortedNames, rowDescrip=sortedNames, datashape = [M, M])
@@ -1459,7 +1464,6 @@ try:
           write_h5(sorted_i_counts, f'{args.outputfileprefix}.consensus.k.{k}.sorted', rowNames=sortedNames, colNames=sortedNames, rowDescrip=sortedNames, datashape = [M, M], comm_world=MPI.COMM_WORLD)
 
         del sorted_i_counts
-        #### END  JTL 10252022-B
 
         linkageend = time.process_time()
         print(f'{rank}: linkage time: {linkageend - cophstart}\n')
@@ -1506,13 +1510,13 @@ try:
         lasttime = thistime
 
       together_counts = None
-      mempool.free_all_blocks()
+      #mempool.free_all_blocks()
     else:
       print(f'{rank}: not generating consensus matrix...\n')
     RangePop() # Consensus
     RangePop() # K=
 
-    mempool.free_all_blocks()
+    #mempool.free_all_blocks()
     if together_counts is not None:
         print(" TC should be null is size " + str(together_counts.shape()[0]) + " by "+ str(together_counts.shape()[0]))
     else :
@@ -1531,9 +1535,9 @@ try:
     print(f'2. NEW VERSION ELAPSED time: {TEDS_END_TIME - TEDS_START_TIME}\n')
     print(" END OF K="+str(k) )
     #if debug:
-    print("Line 1536   Total GPU Alloc=" + str(poolTrack.get_allocated_bytes()) + "   COMM rank is " + str(comm.Get_rank()) + " of " + str(comm.Get_size()))
-    print("Line 1221   GPU Allocations = " + str(poolTrack.get_outstanding_allocations_str()))
-    poolTrack.log_outstanding_allocations()
+    #print("Line 1536   Total GPU Alloc=" + str(poolTrack.get_allocated_bytes()) + "   COMM rank is " + str(comm.Get_rank()) + " of " + str(comm.Get_size()))
+    #print("Line 1221   GPU Allocations = " + str(poolTrack.get_outstanding_allocations_str()))
+    #poolTrack.log_outstanding_allocations()
     #print("===== scope variables ====")
     #print(dir())
     #print("= ===== GLOBALS ======")
@@ -1561,3 +1565,6 @@ k_vs_correlation(20, maxk)
 #      for kdir in kdirs:
 #        print(f'{rank}: rmtree of {JOBDIR}/{kdir}\n')
 #        shutil.rmtree(f'{JOBDIR}/{kdir}')
+TEDS_END_TIME = time.time()
+print(f'FINAL TOTAL ELAPSED time: {TEDS_END_TIME - TEDS_START_TIME}\n')
+
