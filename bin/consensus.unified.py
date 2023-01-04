@@ -78,7 +78,10 @@ import h5py
 from fastdist import fastdist
 import fastcluster
 #from cuml import AgglomerativeClustering
-from cuml import KMeans
+# from cuml import KMeans
+from sklearn.cluster import KMeans
+
+
 from cuml.metrics import pairwise_distances
 from cuml.metrics.cluster import silhouette_score
 from cupy.cuda.nvtx import RangePush,RangePop
@@ -1339,7 +1342,8 @@ try:
       print(f'{rank}: mystartrow: {mystartrow}, myendrow: {myendrow}, mystartcol: {mystartcol}, myendcol: {myendcol}, myrowcount: {myrowcount}, mycolcount: {mycolcount}, Hsendcountlist: {Hsendcountlist}, Wsendcountlist: {Wsendcountlist}\n')
 
     # allocate the consensus matrix on device
-    together_counts = cp.zeros((M,M),dtype=TOGETHERTYPE)
+    # XXX JTL 010423 together_counts = cp.zeros((M,M),dtype=TOGETHERTYPE)
+    together_counts = np.zeros((M,M),dtype=TOGETHERTYPE)
 
     # iterate over seeds
     for seed in seed_list:
@@ -1402,7 +1406,10 @@ try:
         togethermask = i[:, None] == i[None, :]
         if debug:
           print(f'{rank}: togethermask.shape {togethermask.shape}\n')
-        togethermask = cp.array(togethermask)
+
+        # XXX JTL 010423 togethermask = cp.array(togethermask)
+        togethermask = np.array(togethermask)
+
         if debug:
           print(f'{rank}: on GPU, togethermask.shape {togethermask.shape}\n')
         # out of GPU memory:
@@ -1411,7 +1418,9 @@ try:
         # out of GPU memory:
         #zeroarray = cp.zeros((M,M),dtype=TOGETHERTYPE)
         #cupyx.scatter_add(zeroarray,togethermask,1)
-        zeroarray = cp.array(togethermask, dtype=TOGETHERTYPE)
+        # XXX JTL 010423  zeroarray = cp.array(togethermask, dtype=TOGETHERTYPE)
+        zeroarray = np.array(togethermask, dtype=TOGETHERTYPE)
+
         togethermask = None
         #i = None
         if debug:
@@ -1503,8 +1512,16 @@ try:
         print(f'{rank}: before cophenet\n')
         #cophenetic_correlation_distance, cophenetic_distance_matrix = scipy.cluster.hierarchy.cophenet(linkage_mat, cdm)
 
+        ########### RAPIDS>AI silhouette - commeneted out 010423 JTL ##############
         ## silhouette score using RAPIDS AI
-        score = silhouette_score(together_counts, labels)
+        #score = silhouette_score(together_counts, labels)
+        ###########################################################################
+        km = KMeans(n_clusters=k, random_state=42)
+        km.fit_predict(together_counts)
+        score = silhouette_score(together_counts, km.labels_, metric='euclidean')
+        ###########  end JTL 01042023
+        pdistsil = time.process_time()
+        print(f'{rank}: SILHOUETTE time: {pdistsil - pdistend}\n')
 
         cophenetic_correlation_distance = score
         cophenetic_distance_matrix= None
