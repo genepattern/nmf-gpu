@@ -388,15 +388,7 @@ def runnmf(myVcols=None,myVrows=None, mystartrow=None, myendrow=None,mystartcol=
     print(f'{rank}: cp.cuda.runtime.getDevice() ({cp.cuda.runtime.getDevice()})\n')
   # seed the PRNG
   cp.random.seed(seed)
-  safe_divide3 = cp.ElementwiseKernel(
-      'float32 x, float32 y',
-      'float32 z',
-      '''
-z=x/0.00000000001;
-if y != 0.0:;
-   z=x/y;
-''',
-      'safe_divide3')
+
   safe_divide2 = cp.ElementwiseKernel(
       'float32 x, float32 y',
       'float32 z',
@@ -1165,20 +1157,22 @@ else:
   # or are the matrix operations okay?
 
 
-def sort_consensus_matrix():
-    # grab a copy that we will sort after the AgglomerativeClustering is run
-    countsdf2 = pd.DataFrame(together_counts.get(), columns = columnnames, index=columnnames)
+def sort_consensus_matrix(together_counts_mat, kk, columnnames_, MM):
+
 
     global labels
     RangePush("KMeans")
-    kmeans_run = KMeans(n_clusters=k)
-    kmeans_run.fit(together_counts)
+    kmeans_run = KMeans(n_clusters=kk)
+    kmeans_run.fit(together_counts_mat)
     labels = kmeans_run.labels_
     kmeans_run = None
     RangePop()
-    namedf = pd.DataFrame(labels.get(), index=columnnames)
+    namedf = pd.DataFrame(labels.get(), index=columnnames_)
     # and then sort columns by the clusters, and pull the names as a list
     sortedNames = namedf.sort_values(0).index
+
+    # grab a copy that we will sort after the AgglomerativeClustering is run
+    countsdf2 = pd.DataFrame(together_counts_mat.get(), columns=columnnames_, index=columnnames_)
     countsdf2 = countsdf2[sortedNames]
     # create a tuple since gct is indexed on name and descrip, and then reorder
     # sortedNamesAndDescrip = [(i,i) for i in sortedNames]
@@ -1190,23 +1184,24 @@ def sort_consensus_matrix():
     del namedf
     # mempool.free_all_blocks()
     if rank == 0 or args.parastrategy in ('serial', 'kfactor'):
-        plot_matrix(sorted_i_counts, "Consensus Matrix, k=" + str(k),
-                    '{}.consensus.k.{}.pdf'.format(args.outputfileprefix, k), sortedNames, sortedNames)
+        plot_matrix(sorted_i_counts, "Consensus Matrix, k=" + str(kk),
+                    '{}.consensus.k.{}.pdf'.format(args.outputfileprefix, kk), sortedNames, sortedNames)
     if rank == 0 and args.outputfiletype == 'gct':
         sc = NP_GCT(data=sorted_i_counts, rowNames=sortedNames, colNames=sortedNames)
-        sc.write_gct('{}.consensus.k.{}.sorted.gct'.format(args.outputfileprefix, k))
+        sc.write_gct('{}.consensus.k.{}.sorted.gct'.format(args.outputfileprefix, kk))
         sc = None
         # mempool.free_all_blocks()
     elif rank == 0 and args.outputfiletype == 'npy':
         print(f'{rank}: before sc.write_npy\n')
-        write_npy(sorted_i_counts.get(), f'{args.outputfileprefix}.consensus.k.{k}.sorted.npy', rowNames=sortedNames,
-                  colNames=sortedNames, rowDescrip=sortedNames, datashape=[M, M])
+        write_npy(sorted_i_counts.get(), f'{args.outputfileprefix}.consensus.k.{kk}.sorted.npy', rowNames=sortedNames,
+                  colNames=sortedNames, rowDescrip=sortedNames, datashape=[MM, MM])
     elif rank == 0 and args.outputfiletype == 'h5':
-        print(f'{rank}: before write_h5 {args.outputfileprefix}.consensus.k.{k}\n')
+        print(f'{rank}: before write_h5 {args.outputfileprefix}.consensus.k.{kk}\n')
         print(f'sortedNames {sortedNames}\n')
-        write_h5(sorted_i_counts, f'{args.outputfileprefix}.consensus.k.{k}.sorted', rowNames=sortedNames,
-                 colNames=sortedNames, rowDescrip=sortedNames, datashape=[M, M], comm_world=MPI.COMM_WORLD)
+        write_h5(sorted_i_counts, f'{args.outputfileprefix}.consensus.k.{kk}.sorted', rowNames=sortedNames,
+                 colNames=sortedNames, rowDescrip=sortedNames, datashape=[MM, MM], comm_world=MPI.COMM_WORLD)
     del sorted_i_counts
+    return labels
 
 
 def write_intermediate_files():
@@ -1381,7 +1376,10 @@ try:
         togetherstart = time.process_time()
         if debug:
           print(f'{rank}: before cp.asnumpy\n')
+
+        # XXX i is cluster assignment? JTL 010423
         i = cp.argmax(H, axis=0).get()
+
         if debug:
           print(f'{rank}: after cp.asnumpy\n')
         # uses lots of host memory:
@@ -1485,10 +1483,10 @@ try:
 
         # skip the KMeans sorting if there are >1000 samples as it eats too much memory
         if (len(columnnames) < 1000):
-            sort_consensus_matrix()
+            labels = sort_consensus_matrix(together_counts, k, columnnames, M)
         else:
             # KMeans will not have sorted labels so use column names
-            labels = None
+            labels = i
 
 
         linkageend = time.process_time()
@@ -1505,7 +1503,7 @@ try:
         #cophenetic_correlation_distance, cophenetic_distance_matrix = scipy.cluster.hierarchy.cophenet(linkage_mat, cdm)
 
         ## silhouette score using RAPIDS AI
-        score = silhouette_score(together_counts)
+        score = silhouette_score(together_counts, labels)
 
         cophenetic_correlation_distance = score
         cophenetic_distance_matrix= None
