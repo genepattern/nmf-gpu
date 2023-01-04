@@ -1164,6 +1164,51 @@ else:
   # do I need to add the padded rows and columns to the last task?
   # or are the matrix operations okay?
 
+
+def sort_consensus_matrix():
+    # grab a copy that we will sort after the AgglomerativeClustering is run
+    countsdf2 = pd.DataFrame(together_counts.get(), columns = columnnames, index=columnnames)
+
+    global labels
+    RangePush("KMeans")
+    kmeans_run = KMeans(n_clusters=k)
+    kmeans_run.fit(together_counts)
+    labels = kmeans_run.labels_
+    kmeans_run = None
+    RangePop()
+    namedf = pd.DataFrame(labels.get(), index=columnnames)
+    # and then sort columns by the clusters, and pull the names as a list
+    sortedNames = namedf.sort_values(0).index
+    countsdf2 = countsdf2[sortedNames]
+    # create a tuple since gct is indexed on name and descrip, and then reorder
+    # sortedNamesAndDescrip = [(i,i) for i in sortedNames]
+    # now sort the rows by the cluster membership labels
+    countsdf2 = countsdf2.reindex(sortedNames, axis=0)
+    sorted_i_counts = countsdf2.to_numpy()
+    # clear out the matrices we used to sort the counts
+    del countsdf2
+    del namedf
+    # mempool.free_all_blocks()
+    if rank == 0 or args.parastrategy in ('serial', 'kfactor'):
+        plot_matrix(sorted_i_counts, "Consensus Matrix, k=" + str(k),
+                    '{}.consensus.k.{}.pdf'.format(args.outputfileprefix, k), sortedNames, sortedNames)
+    if rank == 0 and args.outputfiletype == 'gct':
+        sc = NP_GCT(data=sorted_i_counts, rowNames=sortedNames, colNames=sortedNames)
+        sc.write_gct('{}.consensus.k.{}.sorted.gct'.format(args.outputfileprefix, k))
+        sc = None
+        # mempool.free_all_blocks()
+    elif rank == 0 and args.outputfiletype == 'npy':
+        print(f'{rank}: before sc.write_npy\n')
+        write_npy(sorted_i_counts.get(), f'{args.outputfileprefix}.consensus.k.{k}.sorted.npy', rowNames=sortedNames,
+                  colNames=sortedNames, rowDescrip=sortedNames, datashape=[M, M])
+    elif rank == 0 and args.outputfiletype == 'h5':
+        print(f'{rank}: before write_h5 {args.outputfileprefix}.consensus.k.{k}\n')
+        print(f'sortedNames {sortedNames}\n')
+        write_h5(sorted_i_counts, f'{args.outputfileprefix}.consensus.k.{k}.sorted', rowNames=sortedNames,
+                 colNames=sortedNames, rowDescrip=sortedNames, datashape=[M, M], comm_world=MPI.COMM_WORLD)
+    del sorted_i_counts
+
+
 try:
   if debug:
     thistime = MPI.Wtime()
@@ -1387,8 +1432,6 @@ try:
         else:
           print(f'should never get here!\n')
 
-        # grab a copy that we will sort after the AgglomerativeClustering is run
-        countsdf2 = pd.DataFrame(together_counts.get(), columns = columnnames, index=columnnames)
 
         # print out the unsorted consensus matrix.  Not sure if this is worth doing since we will
         # print the sorted one later after clustering
@@ -1423,47 +1466,13 @@ try:
         print(f'{rank}: before linkage\n')
         cophstart = time.process_time()
 
-        RangePush("KMeans")
-        kmeans_run = KMeans(n_clusters = k)
-        kmeans_run.fit(together_counts)
-        labels = kmeans_run.labels_
-        kmeans_run = None
-        RangePop()
+        // skip the KMeans sorting if there are >1000 samples as it eats too much memory
+        if (len(columnnames) < 1000):
+            sort_consensus_matrix()
+        else:
+            # KMeans will not have sorted labels so use column names
+            labels = columnnames
 
-        namedf = pd.DataFrame(labels.get(), index = columnnames)
-        # and then sort columns by the clusters, and pull the names as a list
-        sortedNames = namedf.sort_values(0).index
-        countsdf2 = countsdf2[sortedNames]
-
-        # create a tuple since gct is indexed on name and descrip, and then reorder
-        #sortedNamesAndDescrip = [(i,i) for i in sortedNames]
-        # now sort the rows by the cluster membership labels
-        countsdf2 = countsdf2.reindex(sortedNames, axis=0)
-        sorted_i_counts = countsdf2.to_numpy()
-
-        # clear out the matrices we used to sort the counts
-        del countsdf2
-        del namedf
-        #mempool.free_all_blocks()
-
-        if rank == 0 or args.parastrategy in ('serial', 'kfactor'):
-            plot_matrix(sorted_i_counts, "Consensus Matrix, k="+str(k), '{}.consensus.k.{}.pdf'.format(args.outputfileprefix,k), sortedNames, sortedNames)
-
-
-        if rank == 0 and args.outputfiletype == 'gct':
-          sc = NP_GCT(data=sorted_i_counts, rowNames=sortedNames, colNames=sortedNames )
-          sc.write_gct('{}.consensus.k.{}.sorted.gct'.format(args.outputfileprefix,k))
-          sc = None
-          #mempool.free_all_blocks()
-        elif rank == 0 and args.outputfiletype == 'npy':
-          print(f'{rank}: before sc.write_npy\n')
-          write_npy(sorted_i_counts.get(), f'{args.outputfileprefix}.consensus.k.{k}.sorted.npy', rowNames=sortedNames, colNames=sortedNames, rowDescrip=sortedNames, datashape = [M, M])
-        elif rank == 0 and args.outputfiletype == 'h5':
-          print(f'{rank}: before write_h5 {args.outputfileprefix}.consensus.k.{k}\n')
-          print(f'sortedNames {sortedNames}\n')
-          write_h5(sorted_i_counts, f'{args.outputfileprefix}.consensus.k.{k}.sorted', rowNames=sortedNames, colNames=sortedNames, rowDescrip=sortedNames, datashape = [M, M], comm_world=MPI.COMM_WORLD)
-
-        del sorted_i_counts
 
         linkageend = time.process_time()
         print(f'{rank}: linkage time: {linkageend - cophstart}\n')
