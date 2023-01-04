@@ -1483,7 +1483,7 @@ try:
         print(f'{rank}: before linkage\n')
         cophstart = time.process_time()
 
-        // skip the KMeans sorting if there are >1000 samples as it eats too much memory
+        # skip the KMeans sorting if there are >1000 samples as it eats too much memory
         if (len(columnnames) < 1000):
             sort_consensus_matrix()
         else:
