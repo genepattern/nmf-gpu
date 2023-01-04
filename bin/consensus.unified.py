@@ -1413,7 +1413,7 @@ try:
         #cupyx.scatter_add(zeroarray,togethermask,1)
         zeroarray = cp.array(togethermask, dtype=TOGETHERTYPE)
         togethermask = None
-        i = None
+        #i = None
         if debug:
           print(f'{rank}: after scatter_add zeroarray {zeroarray.shape}\n')
         #together_counts[i[:, None] == i[None, :]] += 1
@@ -1484,6 +1484,7 @@ try:
         # skip the KMeans sorting if there are >1000 samples as it eats too much memory
         if (len(columnnames) < 1000):
             labels = sort_consensus_matrix(together_counts, k, columnnames, M)
+            i=None
         else:
             # KMeans will not have sorted labels so use column names
             labels = i
