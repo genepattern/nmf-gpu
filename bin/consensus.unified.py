@@ -1209,6 +1209,87 @@ def sort_consensus_matrix():
     del sorted_i_counts
 
 
+def write_intermediate_files():
+    global columnnames
+    if args.inputfiletype in ('npy',) and inputattributespath.exists:
+        columnnames = attributes_dict['column_names']
+        rownames = attributes_dict['row_names']
+        rowdescriptions = attributes_dict['row_descriptions']
+        Wdatashape = [N, k]
+        Hdatashape = [k, M]
+    elif args.inputfiletype in ('gct',):
+        columnnames = gct_data.columnnames
+        rownames = gct_data.rownames
+        rowdescriptions = gct_data.rowdescriptions
+        Wdatashape = [N, k]
+        Hdatashape = [k, M]
+    if args.outputfiletype == 'npy':
+        write_npy(W.get(), f'{args.outputfileprefix}.W.k.{k}.seed.{seed}.npy', rowNames=rownames, colNames=range(k),
+                  rowDescrip=rownames, datashape=[N, k])
+        write_npy(H.get(), f'{args.outputfileprefix}.H.k.{k}.seed.{seed}.npy', rowNames=range(k), colNames=columnnames,
+                  rowDescrip=range(k), datashape=[k, M])
+    elif args.outputfiletype == 'h5':
+        if debug:
+            print(f'write_h5...')
+        write_h5(W.get(), f'{args.outputfileprefix}.W.k.{k}.seed.{seed}', rowNames=rownames, colNames=range(k),
+                 rowDescrip=rownames, datashape=[N, k], comm_world=MPI.COMM_WORLD)
+        write_h5(H.get(), f'{args.outputfileprefix}.H.k.{k}.seed.{seed}', rowNames=range(k), colNames=columnnames,
+                 rowDescrip=range(k), datashape=[k, M], comm_world=MPI.COMM_WORLD)
+        write_h5(W.get(), f'{args.outputfileprefix}.W.k.{k}.seed.{seed}', rowNames=rownames, colNames=range(k),
+                 rowDescrip=rownames, datashape=[N, k], comm_world=MPI.COMM_WORLD)
+        if debug:
+            print(f'after write_h5...')
+    elif args.outputfiletype == 'gct':
+        H_gct = NP_GCT(data=H.get(), rowNames=list(map(str, range(k))), colNames=columnnames,
+                       rowDescrip=list(map(str, range(k))))
+        H_gct.write_gct(f'{args.outputfileprefix}.H.k.{k}.seed.{seed}.gct')
+        H_gct = None
+        W_gct = NP_GCT(data=W.get(), rowNames=rownames, colNames=list(map(str, range(k))), rowDescrip=rownames)
+        W_gct.write_gct(f'{args.outputfileprefix}.W.k.{k}.seed.{seed}.gct')
+        W_gct = None
+        # mempool.free_all_blocks()
+    else:
+        print(f'Sorry, not writing W and H, unless --outputfiletype=npy or h5 or gct.\n')
+
+
+def write_consensus_matrix():
+    global columnnames
+    RangePush("Writing")
+    if args.inputfiletype == 'gct':
+        columnnames = gct_data.columnnames
+    elif args.inputfiletype == 'h5':
+        # h5_data.attributes dset.attrs
+        columnnames = h5_data.dset.attrs['column_names']
+    elif attributes_dict != None:
+        if debug:
+            print(f'{rank}: using attributes_dict ({attributes_dict})\n')
+        columnnames = attributes_dict['column_names']
+    else:
+        print(f'should never get here!\n')
+    # print out the unsorted consensus matrix.  Not sure if this is worth doing since we will
+    # print the sorted one later after clustering
+    if (rank == 0 or args.parastrategy in ('serial', 'kfactor')) and (args.outputfiletype == 'gct'):
+        consensus_gct = NP_GCT(data=together_counts.get(), rowNames=columnnames, colNames=columnnames)
+        consensus_gct.write_gct('{}.consensus.k.{}.gct'.format(args.outputfileprefix, k))
+        consensus_gct = None
+        # mempool.free_all_blocks()
+    elif (rank == 0 or args.parastrategy in ('serial', 'kfactor')) and (args.outputfiletype == 'npy'):
+        write_npy(together_counts, f'{args.outputfileprefix}.consensus.k.{k}.npy', rowNames=columnnames,
+                  colNames=columnnames, rowDescrip=columnnames, datashape=[M, M])
+    elif args.outputfiletype == 'h5':
+        if debug:
+            print(f'{rank}: before write_h5(tchost...\n')
+        write_h5(together_counts, outputfileprefix=f'{args.outputfileprefix}.consensus.k.{k}', rowNames=columnnames,
+                 colNames=columnnames, rowDescrip=columnnames, datashape=[M, M], comm_world=MPI.COMM_WORLD)
+        if debug:
+            print(f'{rank}: after write_h5(tchost...\n')
+    if rank == 0 or args.parastrategy in ('serial', 'kfactor'):
+        if debug:
+            print(
+                f'{rank}: xxxxxxxxxxxxxxx Elapsed time for k={k}, consensus matrix generation: {time.process_time() - consensusstart}\n');
+    RangePop()
+
+
 try:
   if debug:
     thistime = MPI.Wtime()
@@ -1293,39 +1374,7 @@ try:
         print(f'{rank}:{cp.cuda.runtime.getDevice()}  intermediate files {args.keepintermediatefiles}')  
         RangePush("Intermediate Files")
         if args.keepintermediatefiles == True:
-          if args.inputfiletype in ('npy',) and inputattributespath.exists:
-            columnnames = attributes_dict['column_names']
-            rownames = attributes_dict['row_names']
-            rowdescriptions = attributes_dict['row_descriptions']
-            Wdatashape = [N,k]
-            Hdatashape = [k,M]
-          elif args.inputfiletype in ('gct',):
-            columnnames = gct_data.columnnames
-            rownames = gct_data.rownames
-            rowdescriptions = gct_data.rowdescriptions
-            Wdatashape = [N,k]
-            Hdatashape = [k,M]
-          if args.outputfiletype == 'npy':
-            write_npy(W.get(), f'{args.outputfileprefix}.W.k.{k}.seed.{seed}.npy', rowNames=rownames, colNames=range(k), rowDescrip=rownames, datashape = [N, k])
-            write_npy(H.get(), f'{args.outputfileprefix}.H.k.{k}.seed.{seed}.npy', rowNames=range(k), colNames=columnnames, rowDescrip=range(k), datashape = [k, M])
-          elif args.outputfiletype == 'h5':
-            if debug:
-              print(f'write_h5...')
-            write_h5(W.get(), f'{args.outputfileprefix}.W.k.{k}.seed.{seed}', rowNames=rownames, colNames=range(k), rowDescrip=rownames, datashape = [N, k], comm_world=MPI.COMM_WORLD)
-            write_h5(H.get(), f'{args.outputfileprefix}.H.k.{k}.seed.{seed}', rowNames=range(k), colNames=columnnames, rowDescrip=range(k), datashape = [k, M], comm_world=MPI.COMM_WORLD)
-            write_h5(W.get(), f'{args.outputfileprefix}.W.k.{k}.seed.{seed}', rowNames=rownames, colNames=range(k), rowDescrip=rownames, datashape = [N, k], comm_world=MPI.COMM_WORLD)
-            if debug:
-              print(f'after write_h5...')
-          elif args.outputfiletype == 'gct':
-            H_gct = NP_GCT(data=H.get(), rowNames=list(map(str,range(k))), colNames=columnnames,rowDescrip=list(map(str,range(k))))
-            H_gct.write_gct(f'{args.outputfileprefix}.H.k.{k}.seed.{seed}.gct')
-            H_gct = None
-            W_gct = NP_GCT(data=W.get(), rowNames=rownames, colNames=list(map(str,range(k))),rowDescrip=rownames)
-            W_gct.write_gct(f'{args.outputfileprefix}.W.k.{k}.seed.{seed}.gct')
-            W_gct = None
-            #mempool.free_all_blocks()
-          else:
-            print(f'Sorry, not writing W and H, unless --outputfiletype=npy or h5 or gct.\n')
+          write_intermediate_files()
 
         RangePop()
         RangePush("Togetherness")
@@ -1419,39 +1468,7 @@ try:
         print(f'{rank}: after copying together_counts from GPU to host tchost\n')
       if args.inputfiletype in ('gct','h5') or attributes_dict != None:
         # put this back in after done with npy inputfile
-        RangePush("Writing")
-        if args.inputfiletype == 'gct':
-          columnnames = gct_data.columnnames
-        elif args.inputfiletype == 'h5':
-          # h5_data.attributes dset.attrs
-          columnnames = h5_data.dset.attrs['column_names']
-        elif attributes_dict != None:
-          if debug:
-            print(f'{rank}: using attributes_dict ({attributes_dict})\n')
-          columnnames = attributes_dict['column_names']
-        else:
-          print(f'should never get here!\n')
-
-
-        # print out the unsorted consensus matrix.  Not sure if this is worth doing since we will
-        # print the sorted one later after clustering
-        if (rank == 0 or args.parastrategy in ('serial', 'kfactor')) and (args.outputfiletype == 'gct'):
-          consensus_gct = NP_GCT(data=together_counts.get(), rowNames=columnnames, colNames=columnnames)
-          consensus_gct.write_gct('{}.consensus.k.{}.gct'.format(args.outputfileprefix,k))
-          consensus_gct = None
-          #mempool.free_all_blocks()
-        elif (rank == 0 or args.parastrategy in ('serial', 'kfactor')) and (args.outputfiletype == 'npy'):
-          write_npy(together_counts, f'{args.outputfileprefix}.consensus.k.{k}.npy', rowNames=columnnames, colNames=columnnames, rowDescrip=columnnames, datashape = [M, M])
-        elif args.outputfiletype == 'h5':
-          if debug:
-            print(f'{rank}: before write_h5(tchost...\n')
-          write_h5(together_counts, outputfileprefix=f'{args.outputfileprefix}.consensus.k.{k}', rowNames=columnnames, colNames=columnnames, rowDescrip=columnnames, datashape = [M, M], comm_world=MPI.COMM_WORLD)
-          if debug:
-            print(f'{rank}: after write_h5(tchost...\n')
-        if rank == 0 or args.parastrategy in ('serial', 'kfactor'):
-          if debug:
-            print(f'{rank}: xxxxxxxxxxxxxxx Elapsed time for k={k}, consensus matrix generation: {time.process_time() - consensusstart}\n');
-        RangePop()
+        write_consensus_matrix()
         # calculate cophenetic correlation constant
         # https://medium.com/@codingpilot25/hierarchical-clustering-and-linkage-explained-in-simplest-way-eef1216f30c5
         # https://docs.scipy.org/doc/scipy/reference/generated/scipy.cluster.hierarchy.linkage.html
@@ -1471,7 +1488,7 @@ try:
             sort_consensus_matrix()
         else:
             # KMeans will not have sorted labels so use column names
-            labels = columnnames
+            labels = None
 
 
         linkageend = time.process_time()
@@ -1488,7 +1505,7 @@ try:
         #cophenetic_correlation_distance, cophenetic_distance_matrix = scipy.cluster.hierarchy.cophenet(linkage_mat, cdm)
 
         ## silhouette score using RAPIDS AI
-        score = silhouette_score(together_counts, labels)
+        score = silhouette_score(together_counts)
 
         cophenetic_correlation_distance = score
         cophenetic_distance_matrix= None
