@@ -1267,7 +1267,8 @@ def write_consensus_matrix():
     # print out the unsorted consensus matrix.  Not sure if this is worth doing since we will
     # print the sorted one later after clustering
     if (rank == 0 or args.parastrategy in ('serial', 'kfactor')) and (args.outputfiletype == 'gct'):
-        consensus_gct = NP_GCT(data=together_counts.get(), rowNames=columnnames, colNames=columnnames)
+        # XXX JTL 010423  consensus_gct = NP_GCT(data=together_counts.get(), rowNames=columnnames, colNames=columnnames)
+        consensus_gct = NP_GCT(data=together_counts, rowNames=columnnames, colNames=columnnames)
         consensus_gct.write_gct('{}.consensus.k.{}.gct'.format(args.outputfileprefix, k))
         consensus_gct = None
         # mempool.free_all_blocks()
