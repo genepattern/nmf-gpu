@@ -1170,12 +1170,15 @@ def sort_consensus_matrix(together_counts_mat, kk, columnnames_, MM):
     labels = kmeans_run.labels_
     kmeans_run = None
     RangePop()
-    namedf = pd.DataFrame(labels.get(), index=columnnames_)
+    # XXX JTL 010423 namedf = pd.DataFrame(labels.get(), index=columnnames_)
+    namedf = pd.DataFrame(labels, index=columnnames_)
+
     # and then sort columns by the clusters, and pull the names as a list
     sortedNames = namedf.sort_values(0).index
 
     # grab a copy that we will sort after the AgglomerativeClustering is run
-    countsdf2 = pd.DataFrame(together_counts_mat.get(), columns=columnnames_, index=columnnames_)
+    # XXX JTL 010423   countsdf2 = pd.DataFrame(together_counts_mat.get(), columns=columnnames_, index=columnnames_)
+    countsdf2 = pd.DataFrame(together_counts_mat, columns=columnnames_, index=columnnames_)
     countsdf2 = countsdf2[sortedNames]
     # create a tuple since gct is indexed on name and descrip, and then reorder
     # sortedNamesAndDescrip = [(i,i) for i in sortedNames]
