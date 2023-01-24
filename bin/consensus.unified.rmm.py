@@ -582,6 +582,9 @@ def runnmf(myVcols=None,myVrows=None, mystartrow=None, myendrow=None,mystartcol=
     # * Waux(BLN,Kp) = WH(BLN,Mp) * H'
     # * W(BLN,Kp) = W(BLN,Kp) .* Waux(BLN,Kp) ./ accum_h
     # generate ACCUMH
+    print(f"Line 585  Total GPU Alloc={ str(poolTrack.get_allocated_bytes())}  COMM rank is { str(comm.Get_rank()) } of { str(comm.Get_size()) }")
+    print(f"Line 586  rank { str(comm.Get_rank()) } GPU Allocations = {str(poolTrack.get_outstanding_allocations_str())}")
+
     RangePush("WH = W * H")
     ACCH = cp.sum(H, axis=1, dtype=OTHERTYPE)
     if debug:
@@ -977,23 +980,23 @@ print(f'{rank}:{cp.cuda.runtime.getDevice()}  after setDevice')
 # https://docs.cupy.dev/en/stable/user_guide/memory.html
 #Set the pool size for Rapids Memory Manager
 
-#pool = rmm.mr.PoolMemoryResource(
-#    rmm.mr.CudaMemoryResource(),
-#    initial_pool_size=2**35 - 1900000000,
-#    maximum_pool_size=2**35 - 1900000000
-#)
+pool = rmm.mr.PoolMemoryResource(
+    rmm.mr.CudaMemoryResource(),
+    initial_pool_size=2**35 - 1900000000,
+    maximum_pool_size=2**35 - 1900000000
+)
 
 
 # if not debugging memory, uncomment the following line and comment the 3 TrackingResourceAdaptor lines below
 # rmm.mr.set_current_device_resource(pool)
 
 # for debugging
-#poolTrack = rmm.mr.TrackingResourceAdaptor(pool, False)
-#rmm.enable_logging(log_file_name="rmm_tracking_log")
+poolTrack = rmm.mr.TrackingResourceAdaptor(pool, False)
+rmm.enable_logging(log_file_name="rmm_tracking_log")
 #rmm.mr.enable_logging(log_file_name="rmm_mr_tracking_log")
-#rmm.mr.set_current_device_resource(poolTrack)
+rmm.mr.set_current_device_resource(poolTrack)
 
-#cp.cuda.set_allocator(rmm.rmm_cupy_allocator)
+cp.cuda.set_allocator(rmm.rmm_cupy_allocator)
 
 #mempool = cp.get_default_memory_pool()
 #pinned_mempool = cp.get_default_pinned_memory_pool()
@@ -1582,8 +1585,8 @@ try:
     print(f'2. NEW VERSION ELAPSED time: {TEDS_END_TIME - TEDS_START_TIME}\n')
     print(" END OF K="+str(k) )
     #if debug:
-    #print("Line 1536   Total GPU Alloc=" + str(poolTrack.get_allocated_bytes()) + "   COMM rank is " + str(comm.Get_rank()) + " of " + str(comm.Get_size()))
-    #print("Line 1221   GPU Allocations = " + str(poolTrack.get_outstanding_allocations_str()))
+    print("Line 1588  Total GPU Alloc=" + str(poolTrack.get_allocated_bytes()) + "   COMM rank is " + str(comm.Get_rank()) + " of " + str(comm.Get_size()))
+    print("Line 1589   GPU Allocations = " + str(poolTrack.get_outstanding_allocations_str()))
     #poolTrack.log_outstanding_allocations()
     #print("===== scope variables ====")
     #print(dir())
