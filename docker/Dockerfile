@@ -3,15 +3,15 @@ FROM nvcr.io/nvidia/rapidsai/rapidsai-core:22.08-cuda11.0-runtime-ubuntu20.04-py
 #Install CUDA toolkit 11.0
 RUN wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/cuda-ubuntu2004.pin && \
     mv cuda-ubuntu2004.pin /etc/apt/preferences.d/cuda-repository-pin-600 && \
-    wget http://developer.download.nvidia.com/compute/cuda/11.0.2/local_installers/cuda-repo-ubuntu2004-11-0-local_11.0.2-450.51.05-1_amd64.deb && \
-    dpkg -i cuda-repo-ubuntu2004-11-0-local_11.0.2-450.51.05-1_amd64.deb && \
-    apt-key add /var/cuda-repo-ubuntu2004-11-0-local/7fa2af80.pub && \
+    wget https://developer.download.nvidia.com/compute/cuda/11.2.0/local_installers/cuda-repo-ubuntu2004-11-2-local_11.2.0-460.27.04-1_amd64.deb && \
+    dpkg -i cuda-repo-ubuntu2004-11-2-local_11.2.0-460.27.04-1_amd64.deb && \
+    apt-key add /var/cuda-repo-ubuntu2004-11-2-local/7fa2af80.pub && \
     apt-get update && \
     apt-get -y install cuda
 
 RUN apt install -y wget git python3 vim gcc g++ make
 
-RUN pip uninstall -y cupy && pip install cupy-cuda110
+RUN pip uninstall -y cupy && pip install cupy-cuda112
 
 #Build and install CUDA-aware OpenMPI
 RUN wget https://download.open-mpi.org/release/open-mpi/v4.1/openmpi-4.1.4.tar.gz && \
