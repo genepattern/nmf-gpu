@@ -995,6 +995,15 @@ print(f'{rank}:{cp.cuda.runtime.getDevice()}  after setDevice')
 
 #cp.cuda.set_allocator(rmm.rmm_cupy_allocator)
 
+# ASYNC MALLOC VIA CUPY
+#print("======= set async malloc ===========")
+#cp.cuda.set_allocator(cp.cuda.MemoryPool(cp.cuda.malloc_async).malloc)
+
+#print("======= set managed malloc ===========")
+#cp.cuda.set_allocator(cp.cuda.MemoryPool(cp.cuda.malloc_managed).malloc)
+
+
+
 #mempool = cp.get_default_memory_pool()
 #pinned_mempool = cp.get_default_pinned_memory_pool()
 lasttime = MPI.Wtime()
@@ -1521,9 +1530,14 @@ try:
         ## silhouette score using RAPIDS AI
         #score = silhouette_score(together_counts, labels)
         ###########################################################################
+        RangePush("KMeans")
         km = KMeans(n_clusters=k, random_state=42)
         km.fit_predict(together_counts)
+        RangePop()
+        RangePush("Silhouette")
         score = silhouette_score(together_counts, km.labels_, metric='euclidean')
+        RangePop()
+
         ###########  end JTL 01042023
         pdistsil = time.process_time()
         print(f'{rank}: SILHOUETTE time: {pdistsil - pdistend}\n')
