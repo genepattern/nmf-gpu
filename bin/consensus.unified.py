@@ -79,7 +79,7 @@ from fastdist import fastdist
 import fastcluster
 #from cuml import AgglomerativeClustering
 # from cuml import KMeans
-from sklearn.cluster import KMeans
+from sklearn.cluster import MiniBatchKMeans
 import socket
 
 
@@ -1175,7 +1175,7 @@ def sort_consensus_matrix(together_counts_mat, kk, columnnames_, MM):
 
     global labels
     RangePush("KMeans")
-    kmeans_run = KMeans(n_clusters=kk)
+    kmeans_run = MiniBatchKMeans(n_clusters=kk, batch_size=2048, n_init=10, max_no_improvement=10)
     kmeans_run.fit(together_counts_mat)
     labels = kmeans_run.labels_
     kmeans_run = None
@@ -1531,7 +1531,9 @@ try:
         #score = silhouette_score(together_counts, labels)
         ###########################################################################
         RangePush("KMeans")
-        km = KMeans(n_clusters=k, random_state=42)
+        #km = KMeans(n_clusters=k, random_state=42)
+        km = MiniBatchKMeans(n_clusters=k, batch_size=2048, n_init=10, max_no_improvement=10)
+ 
         km.fit_predict(together_counts)
         RangePop()
         RangePush("Silhouette")
