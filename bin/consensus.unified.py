@@ -79,7 +79,8 @@ from fastdist import fastdist
 import fastcluster
 #from cuml import AgglomerativeClustering
 # from cuml import KMeans
-from sklearn.cluster import KMeans
+from sklearn.cluster import MiniBatchKMeans
+import socket
 
 
 from cuml.metrics import pairwise_distances
@@ -994,6 +995,15 @@ print(f'{rank}:{cp.cuda.runtime.getDevice()}  after setDevice')
 
 #cp.cuda.set_allocator(rmm.rmm_cupy_allocator)
 
+# ASYNC MALLOC VIA CUPY
+#print("======= set async malloc ===========")
+#cp.cuda.set_allocator(cp.cuda.MemoryPool(cp.cuda.malloc_async).malloc)
+
+#print("======= set managed malloc ===========")
+#cp.cuda.set_allocator(cp.cuda.MemoryPool(cp.cuda.malloc_managed).malloc)
+
+
+
 #mempool = cp.get_default_memory_pool()
 #pinned_mempool = cp.get_default_pinned_memory_pool()
 lasttime = MPI.Wtime()
@@ -1165,17 +1175,20 @@ def sort_consensus_matrix(together_counts_mat, kk, columnnames_, MM):
 
     global labels
     RangePush("KMeans")
-    kmeans_run = KMeans(n_clusters=kk)
+    kmeans_run = MiniBatchKMeans(n_clusters=kk, batch_size=2048, n_init=10, max_no_improvement=10)
     kmeans_run.fit(together_counts_mat)
     labels = kmeans_run.labels_
     kmeans_run = None
     RangePop()
-    namedf = pd.DataFrame(labels.get(), index=columnnames_)
+    # XXX JTL 010423 namedf = pd.DataFrame(labels.get(), index=columnnames_)
+    namedf = pd.DataFrame(labels, index=columnnames_)
+
     # and then sort columns by the clusters, and pull the names as a list
     sortedNames = namedf.sort_values(0).index
 
     # grab a copy that we will sort after the AgglomerativeClustering is run
-    countsdf2 = pd.DataFrame(together_counts_mat.get(), columns=columnnames_, index=columnnames_)
+    # XXX JTL 010423   countsdf2 = pd.DataFrame(together_counts_mat.get(), columns=columnnames_, index=columnnames_)
+    countsdf2 = pd.DataFrame(together_counts_mat, columns=columnnames_, index=columnnames_)
     countsdf2 = countsdf2[sortedNames]
     # create a tuple since gct is indexed on name and descrip, and then reorder
     # sortedNamesAndDescrip = [(i,i) for i in sortedNames]
@@ -1295,9 +1308,9 @@ try:
     print(f'from beginning to start of for k loop: ({thistime - lasttime})\n')
     lasttime = thistime
 
-  print(f'{rank}:{cp.cuda.runtime.getDevice()}  starting  myrows  {mystartrow}-{myendrow}')
-  print(f'{rank}:{cp.cuda.runtime.getDevice()}  starting  and mycols  {mystartcol}-{myendcol}')
-  
+  print(f'{rank}:{cp.cuda.runtime.getDevice()}  starting  myrows  {mystartrow}-{myendrow} on {socket.gethostname()}')
+  print(f'{rank}:{cp.cuda.runtime.getDevice()}  starting  and mycols  {mystartcol}-{myendcol} on {socket.gethostname()}')
+
   # iterate over kfactors
   kdirs = []
   for k in my_k_indices:
@@ -1517,9 +1530,16 @@ try:
         ## silhouette score using RAPIDS AI
         #score = silhouette_score(together_counts, labels)
         ###########################################################################
-        km = KMeans(n_clusters=k, random_state=42)
+        RangePush("KMeans")
+        #km = KMeans(n_clusters=k, random_state=42)
+        km = MiniBatchKMeans(n_clusters=k, batch_size=2048, n_init=10, max_no_improvement=10)
+ 
         km.fit_predict(together_counts)
+        RangePop()
+        RangePush("Silhouette")
         score = silhouette_score(together_counts, km.labels_, metric='euclidean')
+        RangePop()
+
         ###########  end JTL 01042023
         pdistsil = time.process_time()
         print(f'{rank}: SILHOUETTE time: {pdistsil - pdistend}\n')

@@ -11,7 +11,7 @@ RUN wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86
 
 RUN apt install -y wget git python3 vim gcc g++ make
 
-RUN pip uninstall -y cupy && pip install cupy-cuda110
+RUN pip uninstall -y cupy && pip install cupy-cuda112
 
 #Build and install CUDA-aware OpenMPI
 RUN wget https://download.open-mpi.org/release/open-mpi/v4.1/openmpi-4.1.4.tar.gz && \
