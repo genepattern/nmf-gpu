@@ -371,10 +371,6 @@ def k_vs_correlation(files_to_find, kval):
     plt.ylabel('Silhouette Score')
     plt.savefig('k_plots.png')
 
-    if len(fps) == (kval - 1):
-      for fp in fps:
-        os.remove(fp)
-
 
 
 
