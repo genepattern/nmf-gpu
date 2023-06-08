@@ -335,24 +335,31 @@ def plot_matrix(df, title, filename, rowLabels, colLabels):
 def k_vs_correlation(files_to_find, kval):
     """
     Plots k v.s. correlation
+    Will try to find files that are created after each cophenet calculation:
+    this is going to be named: 
+
+    *outputfileprefix*.cophenetic.*k_value*.txt
+
+
     file_to_find --> total number of k-values to iterate through and find
     kval --> actual maximum k value
     """
     x = []
     y = []
+    fps = []
     for i in range(files_to_find):
         fp = f'k_{i}_vs_score.txt'
         print(f"does fp {fp} exist? {os.path.exists(fp)}")
         if os.path.exists(fp):
             with open(fp, 'r') as file:
-                line = file.readline().split(' ')
+                line = file.readline().split(" ")
                 print(f'type of line: {line}')
                 x_, y_ = int(line[0]), float(line[1])
                 print(f"X VALUE IS: {x_} Y VALUE IS: {y_}")
                 x.append(x_)
                 y.append(y_)
             file.close()
-            os.remove(fp)
+            fps.append(fp)
     print(f"k_values {x}, y_values {y}")
     fig = plt.figure()
     plt.figure().clear()
@@ -363,6 +370,10 @@ def k_vs_correlation(files_to_find, kval):
     plt.xlabel('k')
     plt.ylabel('Silhouette Score')
     plt.savefig('k_plots.png')
+
+    if len(fps) == (kval - 1):
+      for fp in fps:
+        os.remove(fp)
 
 
 
