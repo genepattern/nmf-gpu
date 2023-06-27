@@ -98,9 +98,6 @@ EPSILON = cp.finfo(OTHERTYPE).eps
 W = None
 H = None
 TEDS_START_TIME=time.time()
-# https://docs.cupy.dev/en/stable/user_guide/kernel.html
-# kerneldiv = cp.ElementwiseKernel(
-#   'float32 x, float32 y', 'float32 z', 'z = x / y', 'kerneldiv')
 
 # Class for reading and writing GCT files
 class NP_GCT:
@@ -124,14 +121,7 @@ class NP_GCT:
       #data = np.loadtxt(fname='testfile', dtype=np.half, delimiter="\t")  # change filling_valuesas req'd to fill in missing values
       numCols = int(dims[1])
       colNames = f.readline().strip().split('\t');
-      # override comments because there are none in a gct but there can be # in a gene description
-      #data = cp.genfromtxt(fname=filename, delimiter="\t", skip_header=3, usecols=range(2,numCols+2), filling_values=0, comments='#####')  # change filling_valuesas req'd to fill in missing values
-      #data = cp.loadtxt(fname=filename, delimiter="\t", skiprows=3, usecols=range(2,numCols+2), comments='#####')  # change filling_valuesas req'd to fill in missing values
-      #data = np.genfromtxt(fname=filename, delimiter="\t", skip_header=3, usecols=range(2,numCols+2), filling_values=0, comments='#####')  # change filling_valuesas req'd to fill in missing values
-      #data = np.genfromtxt(fname=filename, dtype=np.half, delimiter="\t", skip_header=3, usecols=range(2,numCols+2), filling_values=0, comments='#####')  # change filling_valuesas req'd to fill in missing values
-      #self.data = data
-
-
+     
       self.columnnames = colNames[2:];
       self.rownames = [None] * int(dims[0])
       self.rowdescriptions = [None] * int(dims[0])
@@ -185,12 +175,12 @@ class NP_GCT:
       rowNames = self.rownames;
       rowDescriptions = self.rowdescriptions;
       colNames = self.columnnames;
-      #if not rowNames:
+      
       if len(rowNames) == 0:
         rowNames = ["{:}".format(n) for n in range(1,self.data.shape[0]+1)]
       if not rowDescriptions:
         rowDescriptions = rowNames
-      #if not colNames:
+     
       if len(colNames) == 0:
         colNames =  ["{:}".format(n) for n in range(1,self.data.shape[1]+1)]
       file.write('#1.2\n' + str(nRows) + '\t' + str(nCols) + '\n')
@@ -265,14 +255,10 @@ def write_npy(data=None, outputfileprefix=None, colNames=[], rowNames=[], rowDes
 def write_h5(data=None, outputfileprefix=None, colNames=[], rowNames=[], rowDescrip = [], datashape = None, comm_world=None):
   RangePush("write_h5")
   rank = comm_world.rank
-  print(f'{rank}: beginning of write_h5\n')
   outf = h5py.File(outputfileprefix + '.h5', 'w', driver='mpio', comm=comm_world, libver='latest')
-  print(f'{rank}: after h5py.File\n')
   datasetname = outputfileprefix
-  print(f'{rank}: before create_dataset({datasetname})\n')
   dset = outf.create_dataset(datasetname, data=data, dtype=data.dtype)
-  print(f'{rank}: after create_dataset({datasetname})\n')
-  print(f'colNames {colNames}\n')
+ 
   dset.attrs['column_names'] = colNames
   dset.attrs['row_names'] = rowNames
   dset.attrs['row_descriptions'] = rowDescrip
@@ -385,15 +371,6 @@ def runnmf(myVcols=None,myVrows=None, mystartrow=None, myendrow=None,mystartcol=
   global H
   W = None
   H = None
-  # Use rapids memory manager
-  #    - set at startup
-  # cp.cuda.set_allocator(rmm.rmm_cupy_allocator)
-  # disable memory pool:
-  #cp.cuda.set_allocator(None)
-  #cp.cuda.runtime.setDevice(rank)
-  #mempool = cp.get_default_memory_pool()
-  #mempool.free_all_blocks()
-
 
   if debug:
     print(f'{rank}: cp.cuda.runtime.getDevice() ({cp.cuda.runtime.getDevice()})\n')
@@ -425,11 +402,8 @@ def runnmf(myVcols=None,myVrows=None, mystartrow=None, myendrow=None,mystartcol=
   # this is over interval [0, 1), might need to add a smidge...
 
   H = cp.array(cp.random.rand(kfactor,M, dtype=RANDTYPE), dtype=OTHERTYPE) + EPSILON
-  # is it better to create the transposed matrix from the start?
-  #Ht = H.transpose()
   W = cp.array(cp.random.rand(N,kfactor,dtype=RANDTYPE), dtype=OTHERTYPE) + EPSILON
-  #Wt = W.transpose()
-
+ 
   if debug:
     print(f'{rank}: initial H: ({H})\n')
     print(f'{rank}: initial W: ({W})\n')
@@ -446,7 +420,7 @@ def runnmf(myVcols=None,myVrows=None, mystartrow=None, myendrow=None,mystartcol=
   sameclassificationcount = 0
   oldserialerror = None
   oldmpierror = None
-  #KLFO = open('kldiv.tsv', 'w')
+  
   while iterationcount < maxiterations:
     if debug:
       thistime = MPI.Wtime()
@@ -478,7 +452,6 @@ def runnmf(myVcols=None,myVrows=None, mystartrow=None, myendrow=None,mystartcol=
     # https://stackoverflow.com/questions/42190783/what-does-three-dots-in-python-mean-when-indexing-what-looks-like-a-number
     #with cp.nditer(myVcols, flags=['multi_index'], op_flags=['readwrite']) as it:
     
-    #print("Line 480 pre divide  Total GPU Alloc=" + str(poolTrack.get_allocated_bytes()) ) 
     if (k == 4):
         #print("XXX 480  GPU Allocations = " + str(poolTrack.get_outstanding_allocations_str()))
         print(f'      WHm.shape: {WHm.shape}\n')
@@ -486,9 +459,7 @@ def runnmf(myVcols=None,myVrows=None, mystartrow=None, myendrow=None,mystartcol=
         print(f'      myVCols: {myVcols.shape}\n')
  
     WHm = safe_divide(myVcols, WHm)
-    #print("Line 480 post divide   Total GPU Alloc=" + str(poolTrack.get_allocated_bytes()))
-    # TODO Do we need a nan_to_num here?
-    #mempool.free_all_blocks()
+   
     RangePop()
     if debug:
       print(f'{rank}: after divide, WHm.shape: {WHm.shape}\n')
@@ -525,12 +496,10 @@ def runnmf(myVcols=None,myVrows=None, mystartrow=None, myendrow=None,mystartcol=
       print(f'{rank}: WTAUXDIV: ({WTAUXDIV})\n')
     # H = H .* WTAUXDIV
     Hnew = cp.multiply(H[:,mystartcol:myendcol + 1], WTAUXDIV)
-    #Hnew = cp.nan_to_num(Hnewnan, copy=False, nan=EPSILON)
-    #Hnewnan = None
+    
     WTAUX = None
     WTAUXDIV = None
     ACCW = None
-    #mempool.free_all_blocks()
     RangePop()
     # sync H to all devices
     if debug:
@@ -564,13 +533,13 @@ def runnmf(myVcols=None,myVrows=None, mystartrow=None, myendrow=None,mystartcol=
       Hnewfull = Hrecv.reshape(Hshape, order='F')
       Hnewflat = None
       Hrecv = None
-      #mempool.free_all_blocks()
+      
       if debug:
         print(f'{rank}: after Allgatherv, reshape, H.shape {H.shape}\n')
         print(f'{rank}: after Allgatherv, reshape, H {H}\n')
       H = Hnewfull
       Hnewfull = None
-      #mempool.free_all_blocks()
+      
 
     else:
       cp.cuda.Stream.null.synchronize()
@@ -608,17 +577,11 @@ def runnmf(myVcols=None,myVrows=None, mystartrow=None, myendrow=None,mystartcol=
       print(f'{rank}: HTAUX: ({HTAUX})\n')
     # * W(BLN,Kp) = W(BLN,Kp) .* Waux(BLN,Kp) ./ accum_h
     Wnew = cp.multiply(W[mystartrow:myendrow + 1,:], safe_divide(HTAUX,ACCH))
-    #TODO Can we get NaN's here?
-    #WWAUX = cp.nan_to_num(WWAUXnan, copy=False, nan=EPSILON)
-    #WWAUXnan = None
+    
     HTAUX = None
     WHm = None
-    #Wnew = safe_divide(WWAUX, ACCH)
-    #Wnew = cp.nan_to_num(Wnewnan, copy=False, nan=EPSILON)
-    #Wnewnan = None
     WWAUX = None
     ACCH = None
-    #mempool.free_all_blocks()
 
     RangePop()
     if debug:
@@ -662,7 +625,7 @@ def runnmf(myVcols=None,myVrows=None, mystartrow=None, myendrow=None,mystartcol=
       thistime = MPI.Wtime()
       print(f'rank {rank}: kfactor {kfactor}: seed {seed} : iteration {iterationcount} : sync W time: ({thistime - lasttime})\n')
       lasttime = thistime
-    # Wt = W.transpose()
+    
     if debug:
       thistime = MPI.Wtime()
       print(f'rank {rank}: kfactor {kfactor}: seed {seed} : iteration {iterationcount} : W transpose time: ({thistime - lasttime})\n')
@@ -724,11 +687,9 @@ def runnmf(myVcols=None,myVrows=None, mystartrow=None, myendrow=None,mystartcol=
           div = cp.divide(X_datakl,WH_datakl)
           RangePop()
           RangePush("Xdat . log(div)")
-          #if debug:
-          #  print(f'{rank}: X_datakl / WH_datakl, div: ({div})\n')
+         
           cp.log(div,out=div)
           res = None
-          #mempool.free_all_blocks()
           res = cp.dot(X_datakl, div, out=res)
           if debug:
             print(f'{rank}: cp.log(div) ({cp.log(div)})\n')
@@ -771,7 +732,7 @@ def runnmf(myVcols=None,myVrows=None, mystartrow=None, myendrow=None,mystartcol=
             WH_datakl = None
             X_datakl = None
             div = None
-            #mempool.free_all_blocks()
+            
             if errordiff >= 0.0:
               RangePop()
               RangePop()
@@ -791,7 +752,7 @@ def runnmf(myVcols=None,myVrows=None, mystartrow=None, myendrow=None,mystartcol=
             WH_datakl = None
             X_datakl = None
             div = None
-            #mempool.free_all_blocks()
+            
           RangePop()
         #end else if parastrategy == 'inputmatrix':
         else:
@@ -836,18 +797,16 @@ def runnmf(myVcols=None,myVrows=None, mystartrow=None, myendrow=None,mystartcol=
             print(f'{rank}: typ(res): ({type(res)})\n')
             print(f'{rank}: type(2 * res): ({type(2 * res)})\n')
             print(f'{rank}: type(cp.sqrt(2 * res)) {type(cp.sqrt(2 * res))}')
-          #error = OTHERTYPE(cp.sqrt(2 * res))
-          #error = cp.sqrt(2 * res)
+         
           RangePop()
           RangePush("Compute error (2)")
           totalres = res
           error = numpy.sqrt(2 * totalres)
-          #error = numpy.sqrt(2 * totalres/X_datakl.size) * math.sqrt(X_datakl.size)
+          
           if debug:
             print(f'{rank}: oldserialerror: {oldserialerror}\n')
           if type(oldserialerror) == type(None):
             errordiff = None
-            #mempool.free_all_blocks()
             oldserialerror = error
           else:
             errordiff = oldserialerror - error
@@ -857,7 +816,7 @@ def runnmf(myVcols=None,myVrows=None, mystartrow=None, myendrow=None,mystartcol=
           cp.cuda.Stream.null.synchronize()
           if debug:
             print(f'{rank}: KL divergence, serial calculation, error: ({error})\n')
-          #KLFO.write(f'{iterationcount}\t{error}\n')
+          
           if (not type(errordiff) == type(None)) and errordiff < klerrordiffmax:
             if debug:
               print(f'{rank}: interationcount ({iterationcount}): errordiff ({errordiff}) < klerrordiffmax ({klerrordiffmax}), return(W,H)\n')
@@ -869,7 +828,7 @@ def runnmf(myVcols=None,myVrows=None, mystartrow=None, myendrow=None,mystartcol=
               res = None
               indices = None
               sum_WH = None
-              #mempool.free_all_blocks()
+              
               RangePop()
               RangePop()
               RangePop()
@@ -886,15 +845,14 @@ def runnmf(myVcols=None,myVrows=None, mystartrow=None, myendrow=None,mystartcol=
             res = None
             indices = None
             sum_WH = None
-            #mempool.free_all_blocks()
-            #return(W,H)
+            
           RangePop()
         #end else if parastrategy != 'inputmatrix':
         WHkl = None
         WH_datakl = None
         X_datakl = None
         div = None
-        #mempool.free_all_blocks()
+       
       # else not klerrordiffmax == None:
       else:
         if debug:
@@ -935,7 +893,7 @@ def runnmf(myVcols=None,myVrows=None, mystartrow=None, myendrow=None,mystartcol=
                 print(f'{rank}: H: ({H})\n')
               print(f'{rank}:{iterationcount} classification unchanged in {sameclassificationcount} trials,breaking.\n')
               print(f'rank {rank}:kfactor {kfactor}:seed {seed}: iteration{iterationcount} classification unchanged in {sameclassificationcount} trials,breaking.\n')
-            #cp.savetxt(os.path.basename(args.inputmatrix) + '_H.txt', H)
+            
             if debug:
               print(f'{rank}: V: ({V})\n')
             RangePop()
@@ -956,7 +914,7 @@ def runnmf(myVcols=None,myVrows=None, mystartrow=None, myendrow=None,mystartcol=
       print(f'rank {rank}: kfactor {kfactor}: seed {seed} : iteration {iterationcount} : divergence/classification check time: ({thistime - lasttime})\n')
     lasttime = thistime
     iterationcount = iterationcount + 1
-  #KLFO.close()
+  
   if debug:
     print(f'{rank}: iterationcount ({iterationcount})\n')
   RangePop()
@@ -973,7 +931,6 @@ numtasks = comm.size
 
 # on shared GPU nodes, assume the job sees only its device ids,
 # starting from 0, incrementing by one.
-#print(f'{rank}: cp.cuda.runtime.getDeviceCount() {cp.cuda.runtime.getDeviceCount()}\n')
 print(f'{rank}:{cp.cuda.runtime.getDevice()}  before setDevice')
 for deviceid in range(cp.cuda.runtime.getDeviceCount()):
   if rank == deviceid:
@@ -990,29 +947,6 @@ print(f'{rank}:{cp.cuda.runtime.getDevice()}  after setDevice')
 #    maximum_pool_size=2**35 - 1900000000
 #)
 
-
-# if not debugging memory, uncomment the following line and comment the 3 TrackingResourceAdaptor lines below
-# rmm.mr.set_current_device_resource(pool)
-
-# for debugging
-#poolTrack = rmm.mr.TrackingResourceAdaptor(pool, False)
-#rmm.enable_logging(log_file_name="rmm_tracking_log")
-#rmm.mr.enable_logging(log_file_name="rmm_mr_tracking_log")
-#rmm.mr.set_current_device_resource(poolTrack)
-
-#cp.cuda.set_allocator(rmm.rmm_cupy_allocator)
-
-# ASYNC MALLOC VIA CUPY
-#print("======= set async malloc ===========")
-#cp.cuda.set_allocator(cp.cuda.MemoryPool(cp.cuda.malloc_async).malloc)
-
-#print("======= set managed malloc ===========")
-#cp.cuda.set_allocator(cp.cuda.MemoryPool(cp.cuda.malloc_managed).malloc)
-
-
-
-#mempool = cp.get_default_memory_pool()
-#pinned_mempool = cp.get_default_pinned_memory_pool()
 lasttime = MPI.Wtime()
 
 parser = argparse.ArgumentParser()
@@ -1037,7 +971,7 @@ parser.add_argument('-t', '--consecutive', dest='consecutive', action='store')
 parser.add_argument('-u', '--outputfiletype', dest='outputfiletype', action='store')
 parser.add_argument('-v', '--verbose', dest='verbose', action='store_true')
 parser.add_argument('-x', '--maxiterations', dest='maxiterations', action='store')
-#parser.add_argument('-z', '--postprocess', dest='postprocess', action='store_true')
+
 args = parser.parse_args()
 JOBDIR = args.jobdir
 os.makedirs(JOBDIR, exist_ok=True)
@@ -1187,25 +1121,24 @@ def sort_consensus_matrix(together_counts_mat, kk, columnnames_, MM):
     labels = kmeans_run.labels_
     kmeans_run = None
     RangePop()
-    # XXX JTL 010423 namedf = pd.DataFrame(labels.get(), index=columnnames_)
+    
     namedf = pd.DataFrame(labels, index=columnnames_)
 
     # and then sort columns by the clusters, and pull the names as a list
     sortedNames = namedf.sort_values(0).index
 
     # grab a copy that we will sort after the AgglomerativeClustering is run
-    # XXX JTL 010423   countsdf2 = pd.DataFrame(together_counts_mat.get(), columns=columnnames_, index=columnnames_)
     countsdf2 = pd.DataFrame(together_counts_mat, columns=columnnames_, index=columnnames_)
     countsdf2 = countsdf2[sortedNames]
     # create a tuple since gct is indexed on name and descrip, and then reorder
-    # sortedNamesAndDescrip = [(i,i) for i in sortedNames]
+   
     # now sort the rows by the cluster membership labels
     countsdf2 = countsdf2.reindex(sortedNames, axis=0)
     sorted_i_counts = countsdf2.to_numpy()
     # clear out the matrices we used to sort the counts
     del countsdf2
     del namedf
-    # mempool.free_all_blocks()
+    
     if rank == 0 or args.parastrategy in ('serial', 'kfactor'):
         plot_matrix(sorted_i_counts, "Consensus Matrix, k=" + str(kk),
                     '{}.consensus.k.{}.pdf'.format(args.outputfileprefix, kk), sortedNames, sortedNames)
@@ -1213,7 +1146,7 @@ def sort_consensus_matrix(together_counts_mat, kk, columnnames_, MM):
         sc = NP_GCT(data=sorted_i_counts, rowNames=sortedNames, colNames=sortedNames)
         sc.write_gct('{}.consensus.k.{}.sorted.gct'.format(args.outputfileprefix, kk))
         sc = None
-        # mempool.free_all_blocks()
+        
     elif rank == 0 and args.outputfiletype == 'npy':
         print(f'{rank}: before sc.write_npy\n')
         write_npy(sorted_i_counts.get(), f'{args.outputfileprefix}.consensus.k.{kk}.sorted.npy', rowNames=sortedNames,
@@ -1358,12 +1291,11 @@ try:
     else:
       Hsendcountlist = None
       Wsendcountlist = None
-      #mempool.free_all_blocks()
+      
     if debug:
       print(f'{rank}: mystartrow: {mystartrow}, myendrow: {myendrow}, mystartcol: {mystartcol}, myendcol: {myendcol}, myrowcount: {myrowcount}, mycolcount: {mycolcount}, Hsendcountlist: {Hsendcountlist}, Wsendcountlist: {Wsendcountlist}\n')
 
     # allocate the consensus matrix on device
-    # XXX JTL 010423 together_counts = cp.zeros((M,M),dtype=TOGETHERTYPE)
     together_counts = np.zeros((M,M),dtype=TOGETHERTYPE)
 
     # iterate over seeds
@@ -1379,7 +1311,7 @@ try:
       W,H = runnmf(myVcols=myVcols, myVrows=myVrows, mystartrow=mystartrow, myendrow=myendrow, mystartcol=mystartcol, myendcol=myendcol, Hsendcountlist=Hsendcountlist, Wsendcountlist=Wsendcountlist, kfactor=k, checkinterval=int(args.interval), threshold=int(args.consecutive), maxiterations=int(args.maxiterations), seed=seed, debug=DEBUGVAL, comm=comm, parastrategy=args.parastrategy, klerrordiffmax=klerrordiffmax)
       # print result and write files only if rank == 0, or parastrategy
       # is serial or kfactor
-      #poolTrack.log_outstanding_allocations()
+      
       print(f'{rank}:{cp.cuda.runtime.getDevice()}  finished k={k}  seed={seed}')
 
       if rank == 0 or args.parastrategy in ('serial', 'kfactor'):
@@ -1408,57 +1340,30 @@ try:
         if debug:
           print(f'{rank}: after cp.asnumpy\n')
         # uses lots of host memory:
-        #together_counts[i[:, None] == i[None, :]] += 1
+        
         H = None
         Ht = None
         W = None
         Wt = None
-        #mempool.free_all_blocks()
-        # better way would be to have each task update a portion
-        # of together_counts, then collect.  For now do it the brutal way.
-        #together_counts[i[:, None] == i[None, :]] += 1
-        # MxM together_counts.  Do slices at a time instead of
-        # single elements
-        # rowpad, colpad is the amount in last iteration
-        #    myrowcount = (myendrow + 1) - mystartrow
-        #    mycolcount = (myendcol + 1) - mystartcol
-        #    myVcols = cp.array(V[:,mystartcol:myendcol + 1])
-        #    myVrows = cp.array(V[mystartrow:myendrow + 1,:])
+        
         togethermask = i[:, None] == i[None, :]
         if debug:
           print(f'{rank}: togethermask.shape {togethermask.shape}\n')
-
-        # XXX JTL 010423 togethermask = cp.array(togethermask)
         togethermask = np.array(togethermask)
 
         if debug:
           print(f'{rank}: on GPU, togethermask.shape {togethermask.shape}\n')
-        # out of GPU memory:
-        #together_counts[togethermask] += 1
-        #
-        # out of GPU memory:
-        #zeroarray = cp.zeros((M,M),dtype=TOGETHERTYPE)
-        #cupyx.scatter_add(zeroarray,togethermask,1)
-        # XXX JTL 010423  zeroarray = cp.array(togethermask, dtype=TOGETHERTYPE)
+        
         zeroarray = np.array(togethermask, dtype=TOGETHERTYPE)
 
         togethermask = None
-        #i = None
+        
         if debug:
           print(f'{rank}: after scatter_add zeroarray {zeroarray.shape}\n')
-        #together_counts[i[:, None] == i[None, :]] += 1
+       
         together_counts += zeroarray
         del zeroarray
-        # zeroarray= None
-        #mempool.free_all_blocks()
-
-        #os.system('date')
-        # https://numpy.org/doc/stable/reference/arrays.nditer.html#arrays-nditer
-        # no  cp.nditer
-        #with cp.nditer(together_counts, flags=['multi_index'], op_flags=['readwrite']) as it:
-        #  for x in it:
-        #    if i[it.multi_index] == i[it.multi_index[1], it.multi_index[0]]:
-        #      x = x + 1
+       
         if debug:
           print(f'{rank}: after fast together_counts\n')
         if rank == 0 or args.parastrategy in ('serial', 'kfactor'):
@@ -1468,7 +1373,7 @@ try:
       W = None
       H = None
       WH = None
-      #mempool.free_all_blocks()
+      
       if debug:
         print(f'{rank}: end of seed-list for loop\n')
         print(f'{rank}: finished k={k}, seed={seed}\n')
@@ -1476,7 +1381,7 @@ try:
     os.chdir(JOBDIR)
     myVrows = None
     myVcols = None
-    #mempool.free_all_blocks()
+    
     print(f'{rank}:{cp.cuda.runtime.getDevice()}  Consensus ')
 
     RangePush("Consensus")
@@ -1491,7 +1396,7 @@ try:
         # for MPI scatter/gather
         numpy.set_printoptions(threshold=M*M)
 
-      #tchost = together_counts
+      
       if debug:
         print(f'{rank}: after copying together_counts from GPU to host tchost\n')
       if args.inputfiletype in ('gct','h5') or attributes_dict != None:
@@ -1531,8 +1436,7 @@ try:
         # maybe use fastdist for now:
         # https://pypi.org/project/fastdist/
         print(f'{rank}: before cophenet\n')
-        #cophenetic_correlation_distance, cophenetic_distance_matrix = scipy.cluster.hierarchy.cophenet(linkage_mat, cdm)
-
+       
         ########### RAPIDS>AI silhouette - commeneted out 010423 JTL ##############
         ## silhouette score using RAPIDS AI
         #score = silhouette_score(together_counts, labels)
@@ -1580,13 +1484,13 @@ try:
         lasttime = thistime
 
       together_counts = None
-      #mempool.free_all_blocks()
+      
     else:
       print(f'{rank}: not generating consensus matrix...\n')
     RangePop() # Consensus
     RangePop() # K=
 
-    #mempool.free_all_blocks()
+    
     if together_counts is not None:
         print(" TC should be null is size " + str(together_counts.shape()[0]) + " by "+ str(together_counts.shape()[0]))
     else :
@@ -1602,17 +1506,9 @@ try:
 
 
     TEDS_END_TIME = time.time()
-    print(f'2. NEW VERSION ELAPSED time: {TEDS_END_TIME - TEDS_START_TIME}\n')
+    print(f'2. ELAPSED time: {TEDS_END_TIME - TEDS_START_TIME}\n')
     print(" END OF K="+str(k) )
-    #if debug:
-    #print("Line 1536   Total GPU Alloc=" + str(poolTrack.get_allocated_bytes()) + "   COMM rank is " + str(comm.Get_rank()) + " of " + str(comm.Get_size()))
-    #print("Line 1221   GPU Allocations = " + str(poolTrack.get_outstanding_allocations_str()))
-    #poolTrack.log_outstanding_allocations()
-    #print("===== scope variables ====")
-    #print(dir())
-    #print("= ===== GLOBALS ======")
-    #print(globals())
-    # k_vs_correlation(20, maxk)
+    
 except BaseException as e:
   traceback.print_tb(sys.exc_info()[2])
   print(f'{rank}: Unexpected error:', sys.exc_info()[0])
